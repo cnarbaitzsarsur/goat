@@ -418,6 +418,31 @@ class LayerUpdateRunner(SimpleToolRunner):
         finally:
             await pool.close()
 
+    def _delete_old_pmtiles(self: Self, user_id: str, layer_id: str) -> bool:
+        """Delete existing PMTiles file for a layer before regeneration.
+
+        Args:
+            user_id: Layer owner's UUID
+            layer_id: Layer UUID
+
+        Returns:
+            True if PMTiles was deleted, False if it didn't exist
+        """
+        if self.settings is None:
+            return False
+
+        try:
+            from goatlib.io.pmtiles import PMTilesGenerator
+
+            generator = PMTilesGenerator(tiles_data_dir=self.settings.tiles_data_dir)
+            deleted = generator.delete_pmtiles(user_id, layer_id)
+            if deleted:
+                logger.info("Deleted old PMTiles for layer: %s", layer_id)
+            return deleted
+        except Exception as e:
+            logger.warning("Error deleting old PMTiles for layer %s: %s", layer_id, e)
+            return False
+
     async def _update_layer_metadata(
         self: Self,
         layer_id: str,
@@ -582,6 +607,28 @@ class LayerUpdateRunner(SimpleToolRunner):
                     "DuckLake table replaced: %s (%d features)",
                     table_info["table_name"],
                     table_info.get("feature_count", 0),
+                )
+
+                # Step 3.5: Regenerate PMTiles (delete old + create new)
+                # First delete any existing PMTiles for this layer
+                self._delete_old_pmtiles(
+                    user_id=layer_info["user_id"],
+                    layer_id=params.layer_id,
+                )
+
+                # Then generate new PMTiles from updated data
+                # Find geometry column for tile generation
+                geom_col = "geometry"
+                for col_name, col_type in table_info.get("columns", {}).items():
+                    if "GEOMETRY" in col_type.upper():
+                        geom_col = col_name
+                        break
+
+                self._generate_pmtiles(
+                    user_id=layer_info["user_id"],
+                    layer_id=params.layer_id,
+                    table_name=table_info["table_name"],
+                    geometry_column=geom_col,
                 )
 
                 # Step 4: Update PostgreSQL metadata
