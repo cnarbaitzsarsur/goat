@@ -93,6 +93,52 @@ class TileService:
         self.tiles_data_dir = Path(settings.TILES_DATA_DIR)
         # Track which PMTiles files exist (simple path cache)
         self._pmtiles_exists_cache: dict[str, bool] = {}
+        # Cache PMTiles paths by layer_id (avoids glob on every request)
+        self._pmtiles_path_cache: dict[str, Path | None] = {}
+
+    def _find_pmtiles_by_layer_id(self, layer_id: str) -> Path | None:
+        """Find PMTiles file for a layer using glob search (no schema lookup needed).
+
+        This bypasses the DuckDB schema lookup by searching the filesystem directly.
+        PMTiles are stored as: {tiles_data_dir}/{schema_name}/t_{layer_id_no_hyphens}.pmtiles
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+
+        Returns:
+            Path to PMTiles file if found, None otherwise
+        """
+        # Normalize layer_id (remove hyphens)
+        layer_id_normalized = layer_id.replace("-", "")
+
+        # Check cache first - only return if we found a path (don't cache None)
+        cached = self._pmtiles_path_cache.get(layer_id_normalized)
+        if cached is not None:
+            return cached
+
+        # Search for PMTiles file: */t_{layer_id}.pmtiles
+        pattern = f"*/t_{layer_id_normalized}.pmtiles"
+        matches = list(self.tiles_data_dir.glob(pattern))
+
+        if matches:
+            path = matches[0]
+            self._pmtiles_path_cache[layer_id_normalized] = path
+            logger.debug("Found PMTiles for layer %s at %s", layer_id, path)
+            return path
+        else:
+            # Don't cache None - PMTiles might be generated later
+            logger.debug("No PMTiles found for layer %s (not caching)", layer_id)
+            return None
+
+    def invalidate_pmtiles_path_cache(self, layer_id: str) -> None:
+        """Invalidate the PMTiles path cache for a layer.
+
+        Call this when PMTiles are regenerated or deleted.
+        """
+        layer_id_normalized = layer_id.replace("-", "")
+        if layer_id_normalized in self._pmtiles_path_cache:
+            del self._pmtiles_path_cache[layer_id_normalized]
+            logger.debug("Invalidated PMTiles path cache for layer %s", layer_id)
 
     def _get_pmtiles_path(self, layer_info: LayerInfo) -> Path:
         """Get the PMTiles file path for a layer.
@@ -231,6 +277,134 @@ class TileService:
 
         tile_data, is_gzip = result
         return (tile_data, is_gzip, "pmtiles")
+
+    def can_serve_from_pmtiles_by_layer_id(
+        self,
+        layer_id: str,
+        cql_filter: Optional[dict] = None,
+        bbox: Optional[list[float]] = None,
+    ) -> bool:
+        """Check if PMTiles can serve this request using only layer_id.
+
+        Ultra-fast path that avoids DuckDB schema lookup entirely.
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+            cql_filter: Optional CQL filter
+            bbox: Optional additional bbox filter
+
+        Returns:
+            True if PMTiles can serve this request
+        """
+        # If filters are applied, need dynamic generation
+        if cql_filter or bbox:
+            return False
+
+        # Check if PMTiles exist using glob search
+        return self._find_pmtiles_by_layer_id(layer_id) is not None
+
+    async def get_tile_from_pmtiles_by_layer_id(
+        self,
+        layer_id: str,
+        z: int,
+        x: int,
+        y: int,
+    ) -> Optional[tuple[bytes, bool, str]]:
+        """Get tile directly from PMTiles using only layer_id (no schema lookup).
+
+        Ultra-fast path that completely bypasses DuckDB.
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+            z: Zoom level
+            x: Tile X coordinate
+            y: Tile Y coordinate
+
+        Returns:
+            Tuple of (tile_data, is_gzip, source) or None if PMTiles not available
+        """
+        pmtiles_path = self._find_pmtiles_by_layer_id(layer_id)
+        if pmtiles_path is None:
+            return None
+
+        result = await self._get_tile_from_pmtiles_path(pmtiles_path, z, x, y)
+        if result is None:
+            return None
+
+        tile_data, is_gzip = result
+        return (tile_data, is_gzip, "pmtiles")
+
+    async def _get_tile_from_pmtiles_path(
+        self, pmtiles_path: Path, z: int, x: int, y: int
+    ) -> Optional[tuple[bytes, bool]]:
+        """Get tile data from a specific PMTiles file path.
+
+        Args:
+            pmtiles_path: Path to PMTiles file
+            z: Zoom level
+            x: Tile X coordinate
+            y: Tile Y coordinate
+
+        Returns:
+            Tuple of (tile_data, is_gzip_compressed) or None if tile not found
+        """
+
+        def _read_tile() -> (
+            Optional[tuple[bytes, bool]] | tuple[str, bytes, int, int, int, bool]
+        ):
+            """Synchronous tile read function."""
+            try:
+                with open(pmtiles_path, "rb") as f:
+                    source = MmapSource(f)
+                    reader = PMTilesReader(source)
+                    header = reader.header()
+
+                    # Check if tile is within the PMTiles bounds
+                    if z < header.get("min_zoom", 0) or z > header.get("max_zoom", 24):
+                        return None
+
+                    # Try to get the tile directly
+                    tile_data = reader.get(z, x, y)
+
+                    if tile_data:
+                        # Check if tile is gzip compressed
+                        is_gzip = len(tile_data) >= 2 and tile_data[0:2] == b"\x1f\x8b"
+                        return (tile_data, is_gzip)
+
+                    # Tile not found at this level - try overzoom from parent
+                    return (
+                        "overzoom",
+                        b"",
+                        z,
+                        x,
+                        y,
+                        False,
+                    )  # Signal to try overzoom
+
+            except Exception as e:
+                logger.warning(
+                    "Error reading PMTiles %s at %d/%d/%d: %s",
+                    pmtiles_path,
+                    z,
+                    x,
+                    y,
+                    e,
+                )
+                return None
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_pmtiles_executor, _read_tile)
+
+        if result is None:
+            return None
+
+        # Handle overzoom case
+        if isinstance(result, tuple) and len(result) == 6 and result[0] == "overzoom":
+            # For now, return None to fall back to dynamic generation
+            # TODO: Implement overzoom support for path-based lookup
+            return None
+
+        return result
 
     async def _get_tile_from_pmtiles(
         self, layer_info: LayerInfo, z: int, x: int, y: int

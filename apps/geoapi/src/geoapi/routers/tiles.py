@@ -1,6 +1,7 @@
 """Tiles router for OGC Tiles API endpoints."""
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 
@@ -10,6 +11,7 @@ from geoapi.dependencies import (
     LayerInfoDep,
     PropertiesDep,
     TileMatrixSetIdDep,
+    normalize_layer_id,
 )
 from geoapi.models import (
     Link,
@@ -43,7 +45,7 @@ router = APIRouter(tags=["Tiles"])
 )
 async def get_tile(
     request: Request,
-    layer_info: LayerInfoDep,
+    collection_id: Annotated[str, Path(alias="collectionId")],
     tileMatrixSetId: TileMatrixSetIdDep,
     z: int = Path(..., ge=0, le=24, description="Zoom level"),
     x: int = Path(..., ge=0, description="Tile column"),
@@ -54,8 +56,50 @@ async def get_tile(
     limit: int = Query(default=None, ge=1, le=100000, description="Max features"),
 ) -> Response:
     """Get a vector tile for the specified collection and tile coordinates."""
-    # Fast path: If PMTiles exist and no filters, serve directly without metadata lookup
-    # This avoids expensive PostgreSQL + DuckDB queries for cached tile serving
+    # Ultra-fast path: Try PMTiles by layer_id without ANY database lookup
+    # This completely bypasses DuckDB schema lookup for cached tile serving
+    try:
+        layer_id = normalize_layer_id(collection_id)
+    except HTTPException:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid collection ID: {collection_id}"
+        )
+
+    # Try ultra-fast PMTiles path first (wrapped in try-except to ensure fallback)
+    try:
+        if tile_service.can_serve_from_pmtiles_by_layer_id(layer_id, cql_filter, bbox):
+            result = await tile_service.get_tile_from_pmtiles_by_layer_id(
+                layer_id=layer_id,
+                z=z,
+                x=x,
+                y=y,
+            )
+            if result is not None:
+                tile_data, is_gzip, source = result
+                if not tile_data:
+                    return Response(status_code=204)
+                headers = {
+                    "Cache-Control": "public, max-age=3600",
+                    "X-Tile-Source": source,
+                }
+                if is_gzip:
+                    headers["Content-Encoding"] = "gzip"
+                return Response(
+                    content=tile_data,
+                    media_type="application/vnd.mapbox-vector-tile",
+                    headers=headers,
+                )
+    except Exception as e:
+        # Log but continue to fallback path
+        logger.warning("Ultra-fast PMTiles path failed for %s: %s", layer_id, e)
+
+    # Slow path: Need full layer info for dynamic tile generation
+    # Import here to avoid circular dependency and delay the slow lookup
+    from geoapi.dependencies import get_layer_info
+
+    layer_info = await get_layer_info(collection_id)
+
+    # Check if we can still use PMTiles with layer_info (redundant but safe)
     if tile_service.can_serve_from_pmtiles(layer_info, cql_filter, bbox):
         result = await tile_service.get_tile_from_pmtiles_only(
             layer_info=layer_info,
@@ -79,7 +123,7 @@ async def get_tile(
                 headers=headers,
             )
 
-    # Slow path: Need metadata for dynamic tile generation or validation
+    # Dynamic tile generation path
     metadata = await layer_service.get_layer_metadata(layer_info)
 
     if not metadata:
