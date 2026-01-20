@@ -416,7 +416,7 @@ class ThumbnailGeneratorTask:
                     FROM customer.project p
                     LEFT JOIN customer.user_project up ON p.id = up.project_id
                     WHERE p.id = ANY($1::uuid[])
-                    ORDER BY p.id ASC
+                    ORDER BY p.updated_at DESC
                     LIMIT $2
                     """,
                     project_ids,
@@ -435,7 +435,7 @@ class ThumbnailGeneratorTask:
                     FROM customer.project p
                     LEFT JOIN customer.user_project up ON p.id = up.project_id
                     WHERE p.updated_at > $1
-                    ORDER BY p.updated_at ASC
+                    ORDER BY p.updated_at DESC
                     LIMIT $2
                     """,
                     since,
@@ -453,7 +453,7 @@ class ThumbnailGeneratorTask:
                         up.initial_view_state
                     FROM customer.project p
                     LEFT JOIN customer.user_project up ON p.id = up.project_id
-                    ORDER BY p.id ASC
+                    ORDER BY p.updated_at DESC
                     LIMIT $1
                     """,
                     limit,
@@ -625,7 +625,7 @@ class ThumbnailGeneratorTask:
                     WHERE id = ANY($1::uuid[])
                       AND type IN ('feature', 'raster')
                       AND (feature_layer_type IS NULL OR feature_layer_type != 'street_network')
-                    ORDER BY id ASC
+                    ORDER BY updated_at DESC
                     LIMIT $2
                     """,
                     layer_ids,
@@ -650,7 +650,7 @@ class ThumbnailGeneratorTask:
                     WHERE updated_at > $1
                       AND type IN ('feature', 'raster')
                       AND (feature_layer_type IS NULL OR feature_layer_type != 'street_network')
-                    ORDER BY updated_at ASC
+                    ORDER BY updated_at DESC
                     LIMIT $2
                     """,
                     since,
@@ -674,7 +674,7 @@ class ThumbnailGeneratorTask:
                     FROM customer.layer
                     WHERE type IN ('feature', 'raster')
                       AND (feature_layer_type IS NULL OR feature_layer_type != 'street_network')
-                    ORDER BY id ASC
+                    ORDER BY updated_at DESC
                     LIMIT $1
                     """,
                     limit,
@@ -765,7 +765,7 @@ class ThumbnailGeneratorTask:
                     FROM customer.layer
                     WHERE id = ANY($1::uuid[])
                       AND type = 'table'
-                    ORDER BY id ASC
+                    ORDER BY updated_at DESC
                     LIMIT $2
                     """,
                     layer_ids,
@@ -782,7 +782,7 @@ class ThumbnailGeneratorTask:
                     FROM customer.layer
                     WHERE updated_at > $1
                       AND type = 'table'
-                    ORDER BY updated_at ASC
+                    ORDER BY updated_at DESC
                     LIMIT $2
                     """,
                     since,
@@ -798,7 +798,7 @@ class ThumbnailGeneratorTask:
                         thumbnail_url
                     FROM customer.layer
                     WHERE type = 'table'
-                    ORDER BY id ASC
+                    ORDER BY updated_at DESC
                     LIMIT $1
                     """,
                     limit,
