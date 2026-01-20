@@ -123,11 +123,9 @@ class TileService:
         if matches:
             path = matches[0]
             self._pmtiles_path_cache[layer_id_normalized] = path
-            logger.debug("Found PMTiles for layer %s at %s", layer_id, path)
             return path
         else:
             # Don't cache None - PMTiles might be generated later
-            logger.debug("No PMTiles found for layer %s (not caching)", layer_id)
             return None
 
     def invalidate_pmtiles_path_cache(self, layer_id: str) -> None:
@@ -323,11 +321,14 @@ class TileService:
         Returns:
             Tuple of (tile_data, is_gzip, source) or None if PMTiles not available
         """
+        # Step 1: Find PMTiles path
         pmtiles_path = self._find_pmtiles_by_layer_id(layer_id)
         if pmtiles_path is None:
             return None
 
+        # Step 2: Read tile from PMTiles
         result = await self._get_tile_from_pmtiles_path(pmtiles_path, z, x, y)
+
         if result is None:
             return None
 
@@ -338,6 +339,8 @@ class TileService:
         self, pmtiles_path: Path, z: int, x: int, y: int
     ) -> Optional[tuple[bytes, bool]]:
         """Get tile data from a specific PMTiles file path.
+
+        Supports variable-depth tile pyramids with overzoom.
 
         Args:
             pmtiles_path: Path to PMTiles file
@@ -359,27 +362,57 @@ class TileService:
                     reader = PMTilesReader(source)
                     header = reader.header()
 
-                    # Check if tile is within the PMTiles bounds
-                    if z < header.get("min_zoom", 0) or z > header.get("max_zoom", 24):
-                        return None
+                    min_zoom = header.get("min_zoom", 0)
+
+                    # Check if tile is below min zoom
+                    if z < min_zoom:
+                        return (b"", False)  # Empty tile
+
+                    # Check if tiles are gzip compressed
+                    tile_compression = header.get("tile_compression")
+                    is_gzip = tile_compression and tile_compression.value == 2  # GZIP
 
                     # Try to get the tile directly
                     tile_data = reader.get(z, x, y)
 
                     if tile_data:
-                        # Check if tile is gzip compressed
-                        is_gzip = len(tile_data) >= 2 and tile_data[0:2] == b"\x1f\x8b"
+                        # Check if tile is gzip compressed (fallback check)
+                        if not is_gzip:
+                            is_gzip = (
+                                len(tile_data) >= 2 and tile_data[0:2] == b"\x1f\x8b"
+                            )
                         return (tile_data, is_gzip)
 
-                    # Tile not found at this level - try overzoom from parent
+                    # Tile not found - find parent tile for variable-depth pyramids
+                    parent_z, parent_x, parent_y = z, x, y
+                    parent_tile = None
+
+                    while parent_z >= min_zoom:
+                        parent_tile = reader.get(parent_z, parent_x, parent_y)
+                        if parent_tile is not None:
+                            break
+                        # Move to parent tile
+                        parent_z -= 1
+                        parent_x >>= 1
+                        parent_y >>= 1
+
+                    if parent_tile is None:
+                        # No parent found - return empty tile
+                        return (b"", False)
+
+                    # If parent is at same zoom, just return it
+                    if parent_z == z:
+                        return (parent_tile, is_gzip)
+
+                    # Signal that overzoom is needed
                     return (
                         "overzoom",
-                        b"",
-                        z,
-                        x,
-                        y,
-                        False,
-                    )  # Signal to try overzoom
+                        parent_tile,
+                        parent_z,
+                        parent_x,
+                        parent_y,
+                        is_gzip,
+                    )
 
             except Exception as e:
                 logger.warning(
@@ -398,11 +431,20 @@ class TileService:
         if result is None:
             return None
 
-        # Handle overzoom case
+        # Handle overzoom case - now with full support!
         if isinstance(result, tuple) and len(result) == 6 and result[0] == "overzoom":
-            # For now, return None to fall back to dynamic generation
-            # TODO: Implement overzoom support for path-based lookup
-            return None
+            _, parent_tile, parent_z, parent_x, parent_y, is_gzip = result
+
+            # Run async overzoom (non-blocking)
+            overzoomed = await self._overzoom_tile(
+                parent_tile, parent_z, parent_x, parent_y, z, x, y, is_gzip
+            )
+
+            if overzoomed:
+                # tippecanoe-overzoom outputs gzip-compressed tiles
+                return (overzoomed, True)
+
+            return (b"", False)
 
         return result
 
@@ -487,16 +529,6 @@ class TileService:
                     if parent_z == z:
                         return parent_tile, is_gzip
 
-                    logger.debug(
-                        "Variable-depth overzoom: %d/%d/%d -> parent %d/%d/%d",
-                        z,
-                        x,
-                        y,
-                        parent_z,
-                        parent_x,
-                        parent_y,
-                    )
-
                     # Signal that overzoom is needed (will be done async outside executor)
                     return (
                         "overzoom",
@@ -533,7 +565,6 @@ class TileService:
 
             return b"", False
 
-        # Direct tile result
         return result
 
     async def _overzoom_tile(
@@ -571,6 +602,7 @@ class TileService:
                 tempfile.NamedTemporaryFile(suffix=".mvt", delete=True) as in_file,
                 tempfile.NamedTemporaryFile(suffix=".mvt.gz", delete=True) as out_file,
             ):
+                # Write input file
                 in_file.write(input_data)
                 in_file.flush()
 
