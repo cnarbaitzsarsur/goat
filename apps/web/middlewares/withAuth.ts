@@ -19,7 +19,13 @@ const publicPaths = ["/map/public", "/print"];
 
 export const withAuth: MiddlewareFactory = (next) => {
   return async (request: NextRequest, _next) => {
-    if (process.env.NEXT_PUBLIC_AUTH_DISABLED || !process.env.NEXTAUTH_URL || !process.env.NEXTAUTH_SECRET) {
+    // Check if auth is disabled using server-only env var (without NEXT_PUBLIC_ prefix)
+    // IMPORTANT: NEXT_PUBLIC_* vars are inlined at build time and won't work for runtime checks
+    // in Edge Runtime middleware. Use AUTH_DISABLED (server-only) for runtime configuration.
+    const authDisabledEnv = process.env.AUTH_DISABLED;
+    const isAuthDisabled = authDisabledEnv && authDisabledEnv.toLowerCase() === "true";
+
+    if (isAuthDisabled || !process.env.NEXTAUTH_URL || !process.env.NEXTAUTH_SECRET) {
       return next(request, _next);
     }
     const { pathname, search, origin, basePath } = request.nextUrl;
