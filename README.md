@@ -72,7 +72,6 @@ GOAT is a **monorepo** project leveraging a modern, full-stack architecture.
 
 - 🧘‍♂️ [Zod](https://zod.dev/)
 
-
 ### Backend & API Services
 
 - 🐍 [Python](https://www.python.org/)
@@ -110,7 +109,7 @@ Make sure the following are installed on your server or local machine:
 
 - Docker  
 - Docker Compose (plugin syntax: `docker compose`)  
-- At least 8 GB RAM recommended
+- At least 12 GB RAM recommended
 
 #### Docker Compose Profiles
 
