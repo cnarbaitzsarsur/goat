@@ -343,6 +343,7 @@ services:
       - goat
     volumes:
       - .:/app
+      - goat-data:/app/data
     depends_on:
       - db
       - minio
