@@ -44,6 +44,7 @@ import MapViewer from "@/components/map/MapViewer";
 import DataProjectLayout from "@/components/map/layouts/desktop/DataProjectLayout";
 import PublicProjectLayout from "@/components/map/layouts/desktop/PublicProjectLayout";
 import { ReportsLayout } from "@/components/reports";
+import WorkflowsLayout from "@/components/workflows/WorkflowsLayout";
 
 const UPDATE_VIEW_STATE_DEBOUNCE_TIME = 200;
 
@@ -459,7 +460,14 @@ export default function MapPage({ params: { projectId } }) {
                         onProjectUpdate={handleProjectUpdate}
                       />
                     )}
-                    {mapMode !== "reports" && (
+                    {mapMode === "workflows" && (
+                      <WorkflowsLayout
+                        project={project}
+                        projectLayers={projectLayers}
+                        onProjectUpdate={handleProjectUpdate}
+                      />
+                    )}
+                    {mapMode !== "reports" && mapMode !== "workflows" && (
                       <Box
                         sx={{
                           padding: mapMode === "builder" ? "20px" : "0",

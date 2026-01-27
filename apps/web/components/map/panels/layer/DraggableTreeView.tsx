@@ -244,7 +244,7 @@ const EmptyGroupPlaceholder = ({
 // 4. RECURSIVE ITEM COMPONENT
 // ----------------------------------------------------------------------
 
-const RecursiveTreeItem = <T extends BaseTreeItem>({
+const RecursiveTreeItemInner = <T extends BaseTreeItem>({
   item,
   allData,
   level,
@@ -431,7 +431,7 @@ const RecursiveTreeItem = <T extends BaseTreeItem>({
             {item.isGroup && (
               <>
                 {children.map((child) => (
-                  <RecursiveTreeItem
+                  <MemoizedRecursiveTreeItem
                     key={child.id}
                     item={child}
                     allData={allData}
@@ -467,6 +467,32 @@ const RecursiveTreeItem = <T extends BaseTreeItem>({
     </Box>
   );
 };
+
+// Memoized version to prevent unnecessary re-renders
+// Only re-render if the item's own properties change, not when siblings change
+const MemoizedRecursiveTreeItem = React.memo(RecursiveTreeItemInner, (prevProps, nextProps) => {
+  // Check if the item itself changed
+  if (prevProps.item !== nextProps.item) return false;
+  // Check if level changed
+  if (prevProps.level !== nextProps.level) return false;
+  // Check if selection state changed for this item
+  const prevSelected = prevProps.selectedIds.includes(prevProps.item.id);
+  const nextSelected = nextProps.selectedIds.includes(nextProps.item.id);
+  if (prevSelected !== nextSelected) return false;
+  // Check if enableSelection changed
+  if (prevProps.enableSelection !== nextProps.enableSelection) return false;
+  // Check if this item's children changed (for groups)
+  if (prevProps.item.isGroup) {
+    const prevChildren = prevProps.allData.filter((i) => i.parentId === prevProps.item.id);
+    const nextChildren = nextProps.allData.filter((i) => i.parentId === nextProps.item.id);
+    if (prevChildren.length !== nextChildren.length) return false;
+    for (let i = 0; i < prevChildren.length; i++) {
+      if (prevChildren[i] !== nextChildren[i]) return false;
+    }
+  }
+  // Props are equal, don't re-render
+  return true;
+}) as typeof RecursiveTreeItemInner;
 
 export function DraggableTreeView<T extends BaseTreeItem>(props: DraggableTreeViewProps<T>) {
   const {
@@ -531,7 +557,7 @@ export function DraggableTreeView<T extends BaseTreeItem>(props: DraggableTreeVi
       onDragEnd={handleDragEnd}>
       <Box sx={{ flexGrow: 1, ...sx }} className={activeId ? "dnd-drag-active" : ""}>
         {rootItems.map((item) => (
-          <RecursiveTreeItem
+          <MemoizedRecursiveTreeItem
             key={item.id}
             item={item}
             allData={items}
@@ -546,7 +572,7 @@ export function DraggableTreeView<T extends BaseTreeItem>(props: DraggableTreeVi
       </Box>
       <DragOverlay dropAnimation={null}>
         {activeItem ? (
-          <RecursiveTreeItem
+          <RecursiveTreeItemInner
             item={{ ...activeItem, collapsed: true }}
             allData={[]}
             level={0}

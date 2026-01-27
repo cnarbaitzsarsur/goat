@@ -59,6 +59,34 @@ class ToolDefinition:
         module = importlib.import_module(self.module_path)
         return getattr(module, self.params_class_name)
 
+    def get_runner_class(self: Self) -> type | None:
+        """Dynamically import and return the tool runner class.
+
+        Returns the class ending with 'ToolRunner' from the module.
+        """
+        import importlib
+
+        module = importlib.import_module(self.module_path)
+        # Find the ToolRunner class in the module
+        for name in dir(module):
+            if name.endswith("ToolRunner") and not name.startswith("Base"):
+                cls = getattr(module, name)
+                # Verify it's actually a class
+                if isinstance(cls, type):
+                    return cls
+        return None
+
+    def get_output_geometry_type(self: Self) -> str | None:
+        """Get the output geometry type from the tool runner.
+
+        Returns:
+            Geometry type string (e.g., "polygon", "point", "line") or None
+        """
+        runner_class = self.get_runner_class()
+        if runner_class and hasattr(runner_class, "output_geometry_type"):
+            return runner_class.output_geometry_type
+        return None
+
 
 # Central registry of all GOAT tools
 TOOL_REGISTRY: tuple[ToolDefinition, ...] = (

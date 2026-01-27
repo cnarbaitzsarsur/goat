@@ -334,7 +334,8 @@ export const ProjectLayerTree = ({
   const theme = useTheme();
   const { map } = useMap();
   const dispatch = useAppDispatch();
-  const currentZoom = useAppSelector((state) => state.map.currentZoom);
+  // Only subscribe to currentZoom in view mode to avoid re-renders during map interaction in edit mode
+  const currentZoom = useAppSelector((state) => (viewMode === "view" ? state.map.currentZoom : undefined));
 
   const [items, setItems] = useState<ProjectTreeItem[]>([]);
   const [groupModal, setGroupModal] = useState<{

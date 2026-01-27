@@ -3,7 +3,7 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { Theme } from "@mui/material";
 import { Box, useMediaQuery, useTheme } from "@mui/material";
 import maplibregl from "maplibre-gl";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Map, type MapLayerMouseEvent, type MapRef, type ViewState } from "react-map-gl/maplibre";
 import type { ViewStateChangeEvent } from "react-map-gl/maplibre";
 import { v4 } from "uuid";
@@ -218,6 +218,9 @@ const MapViewer: React.FC<MapProps> = ({
     }
   };
 
+  // Store ref to last dispatched zoom to avoid unnecessary Redux updates
+  const lastDispatchedZoomRef = useRef<number | undefined>(undefined);
+
   const handleMapLoad = useCallback(() => {
     if (mapRef?.current) {
       // get all icon layers and add icons to map using addOrUpdateMarkerImages method
@@ -236,10 +239,12 @@ const MapViewer: React.FC<MapProps> = ({
       const geolocationPulsingDot = createPulsingDot(mapRef.current);
       mapRef.current.addImage("geolocation-pulsing-dot", geolocationPulsingDot, { pixelRatio: 2 });
 
-      // set current zoom
+      // set current zoom (rounded to 1 decimal place for consistency)
       const map = mapRef.current.getMap();
       const zoom = map.getZoom();
-      dispatch(setCurrentZoom(zoom));
+      const roundedZoom = Math.round(zoom * 10) / 10;
+      lastDispatchedZoomRef.current = roundedZoom;
+      dispatch(setCurrentZoom(roundedZoom));
     }
     onLoad && onLoad();
   }, [layers, mapRef, onLoad, dispatch]);
@@ -252,7 +257,13 @@ const MapViewer: React.FC<MapProps> = ({
       if (mapRef?.current) {
         const map = mapRef.current.getMap();
         const zoom = map.getZoom();
-        dispatch(setCurrentZoom(zoom));
+        // Round to 1 decimal place to avoid excessive Redux updates during smooth zoom/pan
+        // This prevents re-renders of components subscribed to currentZoom (like LayerTree)
+        const roundedZoom = Math.round(zoom * 10) / 10;
+        if (lastDispatchedZoomRef.current !== roundedZoom) {
+          lastDispatchedZoomRef.current = roundedZoom;
+          dispatch(setCurrentZoom(roundedZoom));
+        }
       }
     },
     [dispatch, onMove, mapRef]

@@ -165,7 +165,10 @@ def _pydantic_to_ogc_inputs(model: type[BaseModel]) -> dict[str, InputDescriptio
     for field_name, field_schema in properties.items():
         if "$ref" in field_schema:
             ref_name = field_schema["$ref"].split("/")[-1]
-            field_schema = defs.get(ref_name, field_schema)
+            ref_schema = defs.get(ref_name, {})
+            # Merge: referenced schema as base, original field_schema overrides (except $ref)
+            original_overrides = {k: v for k, v in field_schema.items() if k != "$ref"}
+            field_schema = {**ref_schema, **original_overrides}
 
         is_required = field_name in required
         has_default = "default" in field_schema

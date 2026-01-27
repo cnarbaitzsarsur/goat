@@ -14,7 +14,6 @@ from sqlmodel import (
     ForeignKey,
     Integer,
     Relationship,
-    UniqueConstraint,
 )
 
 from core.core.config import settings
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
 
     from .report_layout import ReportLayout
     from .scenario import Scenario
+    from .workflow import Workflow
 
 
 class Project(ContentBaseAttributes, DateTimeBase, table=True):
@@ -138,6 +138,11 @@ class Project(ContentBaseAttributes, DateTimeBase, table=True):
     )
 
     report_layouts: List["ReportLayout"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+    workflows: List["Workflow"] = Relationship(
         back_populates="project",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )

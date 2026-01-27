@@ -30,7 +30,8 @@ export const LayerInformationWidget = ({
   const dispatch = useAppDispatch();
   const { projectId } = useParams() as { projectId: string };
   const { mutate: mutateProjectLayers } = useFilteredProjectLayers(projectId);
-  const currentZoom = useAppSelector((state) => state.map.currentZoom);
+  // Only subscribe to currentZoom in viewOnly mode to avoid re-renders during map interaction
+  const currentZoom = useAppSelector((state) => (viewOnly ? state.map.currentZoom : undefined));
 
   // Get Redux state for viewOnly mode
   const reduxProjectLayers = useAppSelector((state) => state.layers.projectLayers);
@@ -45,15 +46,18 @@ export const LayerInformationWidget = ({
   // Determine which data to use based on viewOnly mode
   const groupsToUse = viewOnly ? reduxProjectLayerGroups : editProjectLayerGroups || [];
 
-  // Filter layers based on zoom level
+  // Filter layers based on zoom level (only in viewOnly mode)
   const filteredLayers = useMemo(() => {
     const layersToUse = viewOnly ? reduxProjectLayers : editProjectLayers || [];
     return layersToUse.filter((layer) => {
       if (layer.layer_id && SYSTEM_LAYERS_IDS.includes(layer.layer_id)) return false;
-      const minZoom = layer.properties?.min_zoom;
-      const maxZoom = layer.properties?.max_zoom;
-      if (minZoom && maxZoom && currentZoom) {
-        return currentZoom >= minZoom && currentZoom <= maxZoom;
+      // Only apply zoom filtering in viewOnly mode
+      if (viewOnly && currentZoom !== undefined) {
+        const minZoom = layer.properties?.min_zoom;
+        const maxZoom = layer.properties?.max_zoom;
+        if (minZoom && maxZoom) {
+          return currentZoom >= minZoom && currentZoom <= maxZoom;
+        }
       }
       return true;
     });

@@ -170,6 +170,7 @@ class OutputDescription(BaseModel):
     title: str
     description: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
+    metadata: list[Metadata] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 

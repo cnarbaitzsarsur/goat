@@ -72,6 +72,7 @@ class ToolInfo:
         None  # Documentation path (e.g., "/toolbox/geoprocessing/buffer")
     )
     worker_tag: str = "tools"  # Windmill worker tag for job routing
+    module_path: str | None = None  # Module path for dynamic imports
 
     @property
     def supports_sync(self) -> bool:
@@ -82,6 +83,31 @@ class ToolInfo:
     def supports_async(self) -> bool:
         """Check if tool supports asynchronous execution."""
         return "async-execute" in self.job_control_options
+
+    def get_output_geometry_type(self: Self) -> str | None:
+        """Get the output geometry type from the tool runner.
+
+        Returns:
+            Geometry type string (e.g., "polygon", "point", "line") or None
+        """
+        if not self.module_path:
+            return None
+
+        try:
+            import importlib
+
+            module = importlib.import_module(self.module_path)
+            # Find the ToolRunner class in the module
+            for attr_name in dir(module):
+                if attr_name.endswith("ToolRunner") and not attr_name.startswith(
+                    "Base"
+                ):
+                    cls = getattr(module, attr_name)
+                    if isinstance(cls, type) and hasattr(cls, "output_geometry_type"):
+                        return cls.output_geometry_type
+        except Exception:
+            pass
+        return None
 
 
 class ToolRegistry:
@@ -150,6 +176,7 @@ class ToolRegistry:
                         toolbox_hidden=tool_def.toolbox_hidden,
                         docs_path=tool_def.docs_path,
                         worker_tag=tool_def.worker_tag,
+                        module_path=tool_def.module_path,
                     )
                 except Exception as e:
                     logger.warning(f"Failed to register tool {tool_def.name}: {e}")
@@ -288,25 +315,38 @@ class ToolRegistry:
         # Fallback
         return {"type": "string"}
 
-    def _extract_geometry_metadata(
+    def _extract_input_metadata(
         self: Self,
         x_ui: dict[str, Any],
     ) -> list[Metadata]:
-        """Extract geometry constraint metadata from x-ui widget options.
+        """Extract input metadata from x-ui widget options.
 
-        Converts widget_options geometry constraints to OGC metadata format.
+        Extracts data type (vector, table, raster) and geometry constraints.
         """
         metadata = []
+        widget = x_ui.get("widget", "")
         widget_options = x_ui.get("widget_options", {})
 
-        if "geometry_types" in widget_options:
+        # Determine data_type based on widget
+        # layer-selector and starting-points widgets accept vector data
+        if widget in ("layer-selector", "starting-points"):
             metadata.append(
                 Metadata(
-                    title="geometry_types",
+                    title="data_type",
                     role="constraint",
-                    value=",".join(widget_options["geometry_types"]),
+                    value="vector",
                 )
             )
+
+            # Add geometry constraints if specified
+            if "geometry_types" in widget_options:
+                metadata.append(
+                    Metadata(
+                        title="geometry_types",
+                        role="constraint",
+                        value=",".join(widget_options["geometry_types"]),
+                    )
+                )
 
         if "multi_select" in widget_options:
             metadata.append(
@@ -476,7 +516,29 @@ class ToolRegistry:
                 # Mark layer fields so UI can render layer selector dropdown
                 keywords=["layer"] if is_layer_field else [],
                 # Add geometry constraints as metadata if present in widget_options
-                metadata=self._extract_geometry_metadata(x_ui),
+                metadata=self._extract_input_metadata(x_ui),
+            )
+
+        # Get output geometry type from tool runner
+        output_geometry_type = tool.get_output_geometry_type()
+        output_metadata = []
+
+        # All tools currently output vector data (layers)
+        output_metadata.append(
+            Metadata(
+                title="data_type",
+                role="constraint",
+                value="vector",
+            )
+        )
+
+        if output_geometry_type:
+            output_metadata.append(
+                Metadata(
+                    title="geometry_type",
+                    role="constraint",
+                    value=output_geometry_type,
+                )
             )
 
         # Define outputs
@@ -492,6 +554,7 @@ class ToolRegistry:
                         "feature_count": {"type": "integer"},
                     },
                 },
+                metadata=output_metadata,
             ),
         }
 

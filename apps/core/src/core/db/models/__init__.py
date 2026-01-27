@@ -22,3 +22,4 @@ from .system_setting import SystemSetting
 from .system_task import SystemTask
 from .team import Team
 from .user import User
+from .workflow import Workflow

@@ -10,6 +10,7 @@ from . import (
     status,
     system,
     user,
+    workflow,
 )
 
 router = APIRouter()
@@ -19,6 +20,7 @@ router.include_router(folder.router, prefix="/folder", tags=["Folder"])
 router.include_router(layer.router, prefix="/layer", tags=["Layer"])
 router.include_router(project.router, prefix="/project", tags=["Project"])
 router.include_router(report_layout.router, prefix="/project", tags=["Report Layout"])
+router.include_router(workflow.router, prefix="/project", tags=["Workflow"])
 router.include_router(system.router, prefix="/system", tags=["System Settings"])
 router.include_router(status.router, prefix="/status", tags=["Status"])
 router.include_router(asset.router, prefix="/asset", tags=["Asset"])

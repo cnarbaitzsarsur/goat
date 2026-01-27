@@ -59,6 +59,7 @@ export interface OGCOutputDescription {
   title: string;
   description?: string;
   schema: OGCInputSchema;
+  metadata?: OGCMetadata[];
 }
 
 export interface OGCProcessDescription extends OGCProcessSummary {

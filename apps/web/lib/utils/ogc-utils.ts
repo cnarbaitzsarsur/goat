@@ -8,6 +8,7 @@ import type {
   InferredInputType,
   OGCInputDescription,
   OGCInputSchema,
+  OGCOutputDescription,
   OGCProcessDescription,
   ProcessedInput,
   ProcessedSection,
@@ -182,15 +183,137 @@ export function getEffectiveSchema(schema: OGCInputSchema): OGCInputSchema {
 }
 
 /**
- * Extract geometry constraints from input metadata
+ * Data type information for workflow connections
  */
-export function extractGeometryConstraints(input: OGCInputDescription): string[] | undefined {
-  const constraintMeta = input.metadata.find(
+export interface DataTypeInfo {
+  /** The data type: vector, table, or raster */
+  dataType: "vector" | "table" | "raster" | undefined;
+  /** For vector data, the allowed geometry types */
+  geometryTypes?: string[];
+}
+
+/**
+ * Extract data type info from input metadata
+ */
+export function extractInputDataType(input: OGCInputDescription): DataTypeInfo {
+  const dataTypeMeta = input.metadata.find((m) => m.role === "constraint" && m.title === "data_type");
+  const geometryTypesMeta = input.metadata.find(
     (m) => m.role === "constraint" && m.title === "geometry_types"
   );
 
+  const dataType = dataTypeMeta?.value as "vector" | "table" | "raster" | undefined;
+  const geometryTypes = geometryTypesMeta?.value
+    ? String(geometryTypesMeta.value)
+        .split(",")
+        .map((s) => s.trim())
+    : undefined;
+
+  return { dataType, geometryTypes };
+}
+
+/**
+ * Extract data type info from output metadata
+ */
+export function extractOutputDataType(output: OGCOutputDescription): DataTypeInfo {
+  const dataTypeMeta = output.metadata?.find((m) => m.role === "constraint" && m.title === "data_type");
+  const geometryTypeMeta = output.metadata?.find(
+    (m) => m.role === "constraint" && m.title === "geometry_type"
+  );
+
+  const dataType = dataTypeMeta?.value as "vector" | "table" | "raster" | undefined;
+  // Output has singular geometry_type, convert to array for consistency
+  const geometryTypes = geometryTypeMeta?.value ? [String(geometryTypeMeta.value)] : undefined;
+
+  return { dataType, geometryTypes };
+}
+
+/**
+ * Check if an output type is compatible with an input type
+ * @param outputType - The data type info of the source output
+ * @param inputType - The data type info of the target input
+ * @returns true if the connection is valid
+ */
+export function isConnectionValid(outputType: DataTypeInfo, inputType: DataTypeInfo): boolean {
+  // If input has no data type constraint, accept anything
+  if (!inputType.dataType) {
+    return true;
+  }
+
+  // Data types must match
+  if (outputType.dataType !== inputType.dataType) {
+    return false;
+  }
+
+  // For vector data, check geometry type compatibility
+  if (inputType.dataType === "vector") {
+    // If input has no geometry constraints, accept any vector
+    if (!inputType.geometryTypes || inputType.geometryTypes.length === 0) {
+      return true;
+    }
+
+    // If output has no geometry type specified, we allow it (flexible - dataset nodes)
+    if (!outputType.geometryTypes || outputType.geometryTypes.length === 0) {
+      return true;
+    }
+
+    // Check if output geometry type matches any of the allowed input types
+    // Normalize geometry types (handle Point vs point, etc.)
+    const normalizedInputTypes = inputType.geometryTypes.map((t) => t.toLowerCase());
+    const normalizedOutputTypes = outputType.geometryTypes.map((t) => t.toLowerCase());
+
+    // At least one output geometry type must be compatible
+    return normalizedOutputTypes.some((outType) =>
+      normalizedInputTypes.some((inType) => {
+        // Exact match
+        if (outType === inType) return true;
+        // MultiX matches X
+        if (outType === `multi${inType}`) return true;
+        // X matches MultiX (less strict)
+        if (`multi${outType}` === inType) return true;
+        return false;
+      })
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Format data type info for display
+ */
+export function formatDataType(info: DataTypeInfo): string {
+  if (!info.dataType) {
+    return "any";
+  }
+
+  if (info.dataType === "vector" && info.geometryTypes && info.geometryTypes.length > 0) {
+    return `vector (${info.geometryTypes.join(", ")})`;
+  }
+
+  return info.dataType;
+}
+
+/**
+ * Extract geometry constraints from input metadata
+ */
+export function extractGeometryConstraints(input: OGCInputDescription): string[] | undefined {
+  const constraintMeta = input.metadata.find((m) => m.role === "constraint" && m.title === "geometry_types");
+
   if (constraintMeta && typeof constraintMeta.value === "string") {
     return constraintMeta.value.split(",").map((s) => s.trim());
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract output geometry type from output metadata
+ */
+export function extractOutputGeometryType(output: OGCOutputDescription): string | undefined {
+  const geometryMeta = output.metadata?.find((m) => m.role === "constraint" && m.title === "geometry_type");
+
+  if (geometryMeta && typeof geometryMeta.value === "string") {
+    return geometryMeta.value;
   }
 
   return undefined;
