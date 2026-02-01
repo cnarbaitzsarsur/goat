@@ -137,7 +137,9 @@ export const filterDataConfigSchema = dataConfigSchema.extend({
       zoom_to_selection: z.boolean().optional().default(true),
       // Multi-layer attribute filtering
       target_layers: z.array(filterTargetLayerSchema).optional(),
-      // Cross-filter options: when enabled, filter shows only values that exist in currently filtered data
+      // When true, the filter's *available options* are restricted to values present in the currently
+      // cross‑filtered data. This controls applying cross‑filtering to the options list itself, and does
+      // not globally enable/disable cross‑filtering for the widget.
       cross_filter_options: z.boolean().optional().default(true),
     })
     .default({}),
