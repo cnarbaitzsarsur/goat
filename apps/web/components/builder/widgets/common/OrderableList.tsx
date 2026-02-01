@@ -68,7 +68,8 @@ const SortableItem = ({ value, onRemove }: SortableItemProps) => {
       alignItems="center"
       spacing={1}
       sx={{
-        p: 1,
+        py: 0.5,
+        px: 1,
         backgroundColor: theme.palette.background.paper,
         borderRadius: 1,
         border: `1px solid ${theme.palette.divider}`,

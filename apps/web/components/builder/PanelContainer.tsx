@@ -313,6 +313,11 @@ export const Container: React.FC<ContainerProps> = ({
               ...(panel.config?.options?.style === "default" && {
                 justifyContent: panel.config?.position?.alignItems,
               }),
+              // Add minimal padding for clickable area to select panel (only in edit mode with widgets)
+              ...(!viewOnly &&
+                visibleWidgets.length > 0 && {
+                  p: 0.5,
+                }),
             }}>
             {/* Show empty message if widgets array is empty */}
             {visibleWidgets.length === 0 ? (

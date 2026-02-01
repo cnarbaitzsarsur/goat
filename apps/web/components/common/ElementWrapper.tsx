@@ -72,7 +72,7 @@ export const ElementWrapper: React.FC<ElementWrapperProps> = ({
       }}
       sx={{
         width: "100%",
-        p: 2,
+        p: 1,
         pointerEvents: "all",
         position: "relative",
         "&:hover": {

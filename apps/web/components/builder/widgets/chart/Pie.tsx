@@ -31,7 +31,30 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     queryParams as AggregationStatsQueryParams
   );
 
-  const data = useMemo(() => aggregationStats?.items || [], [aggregationStats]);
+  const originalData = useMemo(() => aggregationStats?.items || [], [aggregationStats]);
+
+  // Apply custom order if defined
+  const orderedData = useMemo(() => {
+    if (!originalData.length) return originalData;
+
+    const customOrder = config?.setup?.custom_order;
+    if (!customOrder || customOrder.length === 0) {
+      return originalData;
+    }
+
+    // Sort by custom order - items in customOrder come first in that order,
+    // items not in customOrder are excluded
+    const orderMap = new Map(customOrder.map((val, idx) => [val, idx]));
+    return originalData
+      .filter((item) => orderMap.has(item.grouped_value))
+      .sort((a, b) => {
+        const aIdx = orderMap.get(a.grouped_value) ?? Infinity;
+        const bIdx = orderMap.get(b.grouped_value) ?? Infinity;
+        return aIdx - bIdx;
+      });
+  }, [originalData, config?.setup?.custom_order]);
+
+  const data = orderedData;
   const displayData = useMemo(() => {
     return data.length > 0 ? data : [{ grouped_value: t("no_data"), operation_value: 1 }];
   }, [data, t]);
@@ -49,6 +72,14 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
   const calculateDefaultActiveIndex = useCallback(() => {
     if (data.length === 0) return 0;
 
+    // If custom_order is defined, use the first item in the order as default
+    const customOrder = config?.setup?.custom_order;
+    if (customOrder && customOrder.length > 0) {
+      // The data is already sorted by custom_order, so first item (index 0) is the default
+      return 0;
+    }
+
+    // Fallback: show the item with max value
     const candidates = data.filter((item) =>
       selectedValues.length > 0 ? selectedValues.includes(item.grouped_value) : true
     );
@@ -56,17 +87,39 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     const validData = candidates.length > 0 ? candidates : data;
     const maxValue = Math.max(...validData.map((item) => item.operation_value));
     return data.findIndex((item) => item.operation_value === maxValue);
-  }, [data, selectedValues]);
+  }, [data, selectedValues, config?.setup?.custom_order]);
+
+  // Build color lookup from color_map if available
+  const colorMapLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    config?.options?.color_map?.forEach(([value, color]) => {
+      lookup.set(value, color);
+    });
+    return lookup;
+  }, [config?.options?.color_map]);
 
   const baseColors = useMemo(() => {
     if (displayData.length === 0) return [];
 
+    // If we have a color_map, use it for colors
+    if (colorMapLookup.size > 0) {
+      return displayData.map((item, index) => {
+        const mappedColor = colorMapLookup.get(item.grouped_value);
+        if (mappedColor) return mappedColor;
+        // Fallback for items not in color_map
+        const palette = config?.options?.color_range?.colors || FALLBACK_COLORS;
+        const colors = chroma.scale(palette).mode("lch").colors(displayData.length);
+        return colors[index];
+      });
+    }
+
+    // Default behavior: generate from color_range
     const palette = data.length > 0 ? config?.options?.color_range?.colors || FALLBACK_COLORS : ["#e0e0e0"];
 
     return displayData.length === 1
       ? [palette[0]]
       : chroma.scale(palette).mode("lch").colors(displayData.length);
-  }, [displayData.length, data.length, config?.options?.color_range?.colors]);
+  }, [displayData, data.length, config?.options?.color_range?.colors, colorMapLookup]);
 
   const computedColors = useMemo(() => {
     return displayData.map((item, index) => {

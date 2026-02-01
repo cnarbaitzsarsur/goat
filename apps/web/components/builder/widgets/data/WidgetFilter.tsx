@@ -50,13 +50,117 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
     state.map.temporaryFilters.find((filter) => filter.id === id)
   );
 
+  // Get all temporary filters (for cross-filtering options)
+  const allTemporaryFilters = useAppSelector((state) => state.map.temporaryFilters);
+
   const layer = useMemo(() => {
     return projectLayers?.find((l) => l.id === rawConfig?.setup?.layer_project_id) ?? null;
   }, [projectLayers, rawConfig?.setup?.layer_project_id]);
 
   /**
+   * Build combined CQL filter for cross-filtering options.
+   * This combines the layer's base CQL with all other filters targeting the same layer
+   * (excluding this filter's own ID to avoid circular filtering).
+   * Also considers filters that target this layer via additional_targets.
+   * Additionally supports bidirectional cross-filtering: if this filter targets Layer X,
+   * and another filter is on Layer X, apply that filter's effect back to this filter.
+   */
+  const crossFilterCql = useMemo(() => {
+    if (!rawConfig?.options?.cross_filter_options || !layer) {
+      return layer?.query?.cql;
+    }
+
+    const filterArgs: object[] = [];
+
+    // Get the layers that THIS filter targets (for reverse lookup)
+    // Map: target layer ID -> { targetColumnName, thisColumnName }
+    const targetLayerMapping = new Map<number, { targetColumn: string; thisColumn: string }>();
+    rawConfig?.options?.target_layers?.forEach((t) => {
+      if (t.layer_project_id && t.column_name && rawConfig?.setup?.column_name) {
+        targetLayerMapping.set(t.layer_project_id, {
+          targetColumn: t.column_name,
+          thisColumn: rawConfig.setup.column_name,
+        });
+      }
+    });
+
+    // Helper function to transform a filter by replacing column names
+    const transformFilter = (filter: any, fromColumn: string, toColumn: string): any => {
+      if (!filter || typeof filter !== "object") return filter;
+
+      // Handle property references
+      if (filter.property === fromColumn) {
+        return { ...filter, property: toColumn };
+      }
+
+      // Recursively transform args
+      if (filter.args && Array.isArray(filter.args)) {
+        return {
+          ...filter,
+          args: filter.args.map((arg: any) => transformFilter(arg, fromColumn, toColumn)),
+        };
+      }
+
+      return filter;
+    };
+
+    // Check all other filters (excluding this filter)
+    allTemporaryFilters
+      .filter((f) => f.id !== id)
+      .forEach((f) => {
+        // Case 1: Filter's primary layer matches this layer
+        if (f.layer_id === layer.id) {
+          filterArgs.push(f.filter);
+        }
+        // Case 2: This layer is in the filter's additional_targets
+        else {
+          const targetForThisLayer = f.additional_targets?.find((target) => target.layer_id === layer.id);
+          if (targetForThisLayer) {
+            filterArgs.push(targetForThisLayer.filter);
+          }
+        }
+
+        // Case 3 (Bidirectional): This filter targets the other filter's layer
+        // Transform the other filter's selection to use this filter's column name
+        const mapping = targetLayerMapping.get(f.layer_id);
+        if (mapping) {
+          const transformedFilter = transformFilter(f.filter, mapping.targetColumn, mapping.thisColumn);
+          filterArgs.push(transformedFilter);
+        }
+      });
+
+    if (filterArgs.length === 0) {
+      return layer?.query?.cql;
+    }
+
+    // Combine with layer's base CQL if it exists
+    const baseCql = layer?.query?.cql;
+    if (baseCql) {
+      filterArgs.push(baseCql);
+    }
+
+    // If only one filter, return it directly
+    if (filterArgs.length === 1) {
+      return filterArgs[0];
+    }
+
+    // Combine with AND
+    return {
+      op: "and",
+      args: filterArgs,
+    };
+  }, [
+    allTemporaryFilters,
+    id,
+    layer,
+    rawConfig?.options?.cross_filter_options,
+    rawConfig?.options?.target_layers,
+    rawConfig?.setup?.column_name,
+  ]);
+
+  /**
    * Sync local state with config changes.
-   * If user changes column/layer in the config panel, wipe local state + related filter.
+   * If user changes column/layer in the config panel, wipe local state + related filter/highlight.
    */
   useEffect(() => {
     setSelectedValues(rawConfig?.setup?.multiple ? [] : "");
@@ -176,16 +280,18 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
 
     const normalizedValues = Array.isArray(selectedValues) ? selectedValues : [selectedValues];
 
+    const filterObject = {
+      op: "or",
+      args: normalizedValues.map((value) => ({
+        op: "=",
+        args: [{ property: rawConfig.setup.column_name }, value],
+      })),
+    };
+
     const newFilter: TemporaryFilter = {
       id,
       layer_id: layer.id,
-      filter: {
-        op: "or",
-        args: normalizedValues.map((value) => ({
-          op: "=",
-          args: [{ property: rawConfig.setup.column_name }, value],
-        })),
-      },
+      filter: filterObject,
       additional_targets: buildAdditionalTargets(normalizedValues),
     };
 
@@ -196,7 +302,6 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
       });
     }
 
-    // Compare and update store only if different
     if (!areFiltersEqual(existingFilter, newFilter)) {
       if (existingFilter) {
         dispatch(updateTemporaryFilter(newFilter));
@@ -234,26 +339,27 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
 
     const [min, max] = selectedRange;
 
+    const filterObject = {
+      op: "and",
+      args: [
+        {
+          op: ">=",
+          args: [{ property: rawConfig.setup.column_name }, min],
+        },
+        {
+          op: "<=",
+          args: [{ property: rawConfig.setup.column_name }, max],
+        },
+      ],
+    };
+
     const newFilter: TemporaryFilter = {
       id,
       layer_id: layer.id,
-      filter: {
-        op: "and",
-        args: [
-          {
-            op: ">=",
-            args: [{ property: rawConfig.setup.column_name }, min],
-          },
-          {
-            op: "<=",
-            args: [{ property: rawConfig.setup.column_name }, max],
-          },
-        ],
-      },
+      filter: filterObject,
       additional_targets: buildAdditionalTargetsRange(min, max),
     };
 
-    // Compare and update store only if different
     if (!areFiltersEqual(existingFilter, newFilter)) {
       if (existingFilter) {
         dispatch(updateTemporaryFilter(newFilter));
@@ -293,7 +399,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             fieldName={rawConfig?.setup.column_name}
             placeholder={rawConfig?.setup.placeholder}
             multiple={rawConfig?.setup.multiple}
-            cqlFilter={layer.query?.cql}
+            cqlFilter={crossFilterCql}
           />
         )}
       {layer &&
@@ -312,7 +418,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             multiple={rawConfig?.setup.multiple}
             wrap={rawConfig?.setup.wrap}
             customOrder={rawConfig?.setup.custom_order}
-            cqlFilter={layer.query?.cql}
+            cqlFilter={crossFilterCql}
             color={rawConfig?.setup.color}
           />
         )}
@@ -331,7 +437,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             minVisibleOptions={rawConfig?.setup.min_visible_options}
             multiple={rawConfig?.setup.multiple}
             customOrder={rawConfig?.setup.custom_order}
-            cqlFilter={layer.query?.cql}
+            cqlFilter={crossFilterCql}
             color={rawConfig?.setup.color}
           />
         )}
@@ -346,7 +452,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             showHistogram={rawConfig?.setup.show_histogram}
             steps={rawConfig?.setup.steps}
             showSlider={rawConfig?.setup.show_slider}
-            cqlFilter={layer.query?.cql}
+            cqlFilter={crossFilterCql}
             color={rawConfig?.setup.color}
           />
         )}

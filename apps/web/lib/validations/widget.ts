@@ -35,6 +35,10 @@ export const formatNumberTypes = z.enum([
   "percent_2d", // 1.00%
 ]);
 
+// How chart widgets respond to cross-filter selections
+export const selectionResponseTypes = z.enum(["filter", "highlight"]);
+export type SelectionResponseType = z.infer<typeof selectionResponseTypes>;
+
 const chartConfigSetupBaseSchema = z.object({
   title: z.string().optional().default("Chart"),
   layer_project_id: z.number().optional(),
@@ -133,6 +137,8 @@ export const filterDataConfigSchema = dataConfigSchema.extend({
       zoom_to_selection: z.boolean().optional().default(true),
       // Multi-layer attribute filtering
       target_layers: z.array(filterTargetLayerSchema).optional(),
+      // Cross-filter options: when enabled, filter shows only values that exist in currently filtered data
+      cross_filter_options: z.boolean().optional().default(true),
     })
     .default({}),
 });
@@ -163,8 +169,14 @@ export const histogramChartConfigSchema = chartsConfigBaseSchema.extend({
       max_value: z.number().optional(),
       include_outliers: z.boolean().optional().default(false),
       format: formatNumberTypes.optional().default("none"),
+      // Base color for bars
       color: z.string().optional().default("#0e58ff"),
-      highlight_color: z.string().optional().default("#f5b704"),
+      // Color when hovering over a bar
+      highlight_color: z.string().optional().default("#3b82f6"),
+      // Color for selected/filtered portion (only used in highlight mode)
+      selected_color: z.string().optional().default("#f5b704"),
+      // How to respond to cross-filter selections: filter data or highlight selected portion
+      selection_response: selectionResponseTypes.optional().default("filter"),
     })
     .default({}),
 });
@@ -176,13 +188,21 @@ export const categoriesChartConfigSchema = chartsConfigBaseSchema.extend({
       operation_type: statisticOperationEnum.optional(),
       operation_value: z.string().optional(),
       group_by_column_name: z.string().optional(),
+      custom_order: z.array(z.string()).optional(), // Custom category order
     })
     .default({}),
   options: chartConfigOptionsBaseSchema
     .extend({
       format: formatNumberTypes.optional().default("none"),
       sorting: sortTypes.optional().default("asc"),
+      // Base color for bars
       color: z.string().optional().default("#0e58ff"),
+      // Color when hovering over a bar
+      highlight_color: z.string().optional().default("#3b82f6"),
+      // Color for selected/filtered portion (only used in highlight mode)
+      selected_color: z.string().optional().default("#f5b704"),
+      // How to respond to cross-filter selections: filter data or highlight selected portion
+      selection_response: selectionResponseTypes.optional().default("filter"),
       width: z.number().min(3).max(15).optional().default(5),
       num_categories: z.number().min(1).max(15).optional().default(1),
       show_other_aggregate: z.boolean().optional().default(false),
@@ -197,6 +217,7 @@ export const pieChartConfigSchema = chartsConfigBaseSchema.extend({
       operation_type: statisticOperationEnum.optional(),
       operation_value: z.string().optional(),
       group_by_column_name: z.string().optional(),
+      custom_order: z.array(z.string()).optional(), // Custom category order
     })
     .default({}),
   options: chartConfigOptionsBaseSchema
@@ -204,6 +225,9 @@ export const pieChartConfigSchema = chartsConfigBaseSchema.extend({
       num_categories: z.number().min(1).max(15).optional().default(1),
       cap_others: z.boolean().optional().default(false),
       color_range: colorRange.optional().default(DEFAULT_COLOR_RANGE),
+      // Custom color mapping: array of [category_value, hex_color] tuples
+      color_map: z.array(z.tuple([z.string(), z.string()])).optional(),
+      sorting: sortTypes.optional().default("desc"),
     })
     .default({}),
 });

@@ -39,15 +39,18 @@ const RangeFilter = ({
   // Local state for slider (to allow dragging without immediate API calls)
   const [localSliderValue, setLocalSliderValue] = useState<[number, number] | null>(null);
 
+  // Stringify cqlFilter for stable comparison in useMemo dependency
+  const cqlFilterString = cqlFilter ? JSON.stringify(cqlFilter) : undefined;
+
   // Build query params for histogram
   const queryParams = useMemo<HistogramStatsQueryParams | undefined>(() => {
     if (!fieldName) return undefined;
     return {
       column_name: fieldName,
       num_bins: steps,
-      query: cqlFilter ? JSON.stringify(cqlFilter) : undefined,
+      query: cqlFilterString,
     };
-  }, [fieldName, steps, cqlFilter]);
+  }, [fieldName, steps, cqlFilterString]);
 
   const { histogramStats, isLoading, isError } = useProjectLayerHistogramStats(layerId, queryParams);
 

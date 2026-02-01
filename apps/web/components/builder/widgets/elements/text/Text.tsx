@@ -45,6 +45,10 @@ export const TipTapEditorContent = styled(EditorContent)(() => ({
     "& p:first-of-type, & h1:first-of-type, & h2:first-of-type, & h3:first-of-type": {
       marginTop: 0,
     },
+    // Hide empty trailing paragraphs (but keep them editable)
+    "& p:last-child:empty, & p:last-child:has(br:only-child)": {
+      display: "none",
+    },
   },
   "& > .ProseMirror-focused": {
     outline: "none",

@@ -12,14 +12,17 @@ interface UseFilterValuesParams {
 }
 
 export const useFilterValues = ({ layerId, fieldName, customOrder, cqlFilter }: UseFilterValuesParams) => {
+  // Stringify cqlFilter for stable comparison in useMemo dependency
+  const cqlFilterString = cqlFilter ? JSON.stringify(cqlFilter) : undefined;
+
   const queryParams = useMemo(
     () => ({
       size: 100,
       page: 1,
       order: "descendent" as const,
-      ...(cqlFilter ? { query: JSON.stringify(cqlFilter) } : {}),
+      ...(cqlFilterString ? { query: cqlFilterString } : {}),
     }),
-    [cqlFilter]
+    [cqlFilterString]
   );
 
   const { data, isLoading } = useLayerUniqueValues(layerId, fieldName, queryParams);
