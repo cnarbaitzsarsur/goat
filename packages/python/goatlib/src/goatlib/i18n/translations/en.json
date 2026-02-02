@@ -9,6 +9,9 @@
     "opportunities": {
       "label": "Opportunities"
     },
+    "demand": {
+      "label": "Demand"
+    },
     "scenario": {
       "label": "Scenario"
     },
@@ -50,6 +53,9 @@
     },
     "geocoding": {
       "label": "Geocoding"
+    },
+    "algorithm_settings": {
+      "label": "Algorithm Settings"
     },
     "matrix": {
       "label": "Matrix Data"
@@ -191,6 +197,18 @@
       "label": "Reference Area",
       "description": "Layer defining the reference area for connectivity analysis"
     },
+    "demand_field": {
+      "label": "Demand Field",
+      "description": "Field with demand values"
+    },
+    "demand_path": {
+      "label": "Demand Layer",
+      "description": "Layer with demand points"
+    },
+    "two_sfca_type": {
+      "label": "2SFCA Type",
+      "description": "Type of Two-Step Floating Catchment Area method"
+    },
     "weekday": {
       "label": "Day",
       "description": "Type of day for public transport schedule"
@@ -226,6 +244,10 @@
     "dissolve": {
       "label": "Dissolve",
       "description": "Merge overlapping buffers into single geometry"
+    },
+    "nb_cluster": {
+      "label": "Number of Clusters",
+      "description": "Number of zones to create"
     },
     "num_triangles": {
       "label": "Curve Smoothness",
@@ -761,6 +783,14 @@
       "title": "Heatmap Connectivity",
       "description": "Connectivity of transport routes is determined by calculating catchment areas for each grid cell, where the reached area is the measure for connectivity."
     },
+    "heatmap_2sfca": {
+      "title": "Heatmap 2SFCA",
+      "description": "The Two-Step Floating Catchment Area (2SFCA) method is used to measure spatial accessibility by considering both supply and demand within defined catchment areas."
+    },
+    "huff_model": {
+      "title": "Huff Model",
+      "description": "The Huff Model is a spatial interaction model that predicts the probability of consumers visiting particular retail locations based on the attractiveness of the locations and the distance to those locations."
+    },
     "oev_gueteklassen": {
       "title": "ÖV-Güteklassen",
       "description": "The Public Transport Quality Classes (German: ÖV-Güteklassen) show the attractiveness of public transport services for a selected area."
@@ -810,6 +840,10 @@
       "title": "Geocoding",
       "description": "Convert addresses to geographic coordinates. Supports both full address strings and structured address components."
     },
+    "clustering_zones": {
+      "title": "Clustering Zones",
+      "description": "Creates clustered zones from point features. Choose the clustering method: fast with K-means or slower with balanced zones."
+    },
     "join": {
       "title": "Join Features",
       "description": "Transfers attributes from one layer to another based on spatial and attribute relationships. Optionally, statistics can be calculated for the joined features."
@@ -851,12 +885,20 @@
     "heatmap_gravity": "Heatmap Gravity",
     "heatmap_connectivity": "Heatmap Connectivity",
     "heatmap_closest_average": "Heatmap Closest Average",
+    "heatmap_2sfca": "Heatmap 2SFCA",
+    "huff_model": "Huff Model",
     "oev_gueteklassen": "ÖV-Güteklassen",
     "oev_gueteklassen_stations": "PT Stations",
     "trip_count": "Trip Count Platform",
     "origin_destination_lines": "OD Lines",
     "origin_destination_points": "OD Points",
     "join": "Join Features",
-    "geocoding": "Geocoding"
-  }
+    "geocoding": "Geocoding",
+    "clustered_zones": "Clustered Zones"
+  },
+    "two_sfca_type": {
+      "2fsca": "2SFCA",
+      "e2sfca": "Enhanced 2SFCA",
+      "m2sfca": "Modified 2SFCA"
+    }
 }

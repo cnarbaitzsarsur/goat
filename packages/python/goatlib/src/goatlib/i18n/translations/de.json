@@ -9,6 +9,9 @@
     "opportunities": {
       "label": "Gelegenheiten"
     },
+    "demand": {
+      "label": "Nachfrage"
+    },
     "scenario": {
       "label": "Szenario"
     },
@@ -50,6 +53,9 @@
     },
     "geocoding": {
       "label": "Geokodierung"
+    },
+    "algorithm_settings": {
+      "label": "Algorithmus-Einstellungen"
     },
     "matrix": {
       "label": "Matrix-Daten"
@@ -191,6 +197,16 @@
       "label": "Referenzgebiet",
       "description": "Layer, der das Referenzgebiet für die Konnektivitätsanalyse definiert"
     },
+    "demand_field": {
+      "label": "Nachfragefeld",
+      "description": "Feld mit den Nachfragewerten"
+    },
+    "demand_path": {
+      "label": "Nachfrage-Layer",
+      "description": "Layer mit den Nachfragepunkten"},
+     "two_sfca_type": {
+      "label": "2SFCA-Typ",
+      "description": "Art der Two-Step Floating Catchment Area-Methode"},
     "weekday": {
       "label": "Tag",
       "description": "Art des Tages für den ÖV-Fahrplan"
@@ -226,6 +242,30 @@
     "dissolve": {
       "label": "Zusammenführen",
       "description": "Überlappende Objekte zu einer Geometrie zusammenführen"
+    },
+    "nb_cluster": {
+      "label": "Anzahl Cluster",
+      "description": "Anzahl der zu erstellenden Zonen"
+    },
+    "max_distance_threshold": {
+      "label": "Max. Entfernungsschwelle",
+      "description": "Maximale Entfernung für Kompaktheitsmessung (automatisch erkannt falls nicht angegeben)"
+    },
+    "population_size": {
+      "label": "Populationsgröße",
+      "description": "Anzahl Individuen in genetischem Algorithmus (höher = bessere Qualität, langsamer)"
+    },
+    "max_generations": {
+      "label": "Max. Generationen",
+      "description": "Maximale Anzahl Generationen (höher = bessere Konvergenz, langsamer)"
+    },
+    "mutation_rate": {
+      "label": "Mutationsrate",
+      "description": "Wahrscheinlichkeit für Mutation im genetischen Algorithmus"
+    },
+    "h3_resolution": {
+      "label": "H3-Gitter-Auflösung",
+      "description": "Detailgrad des hexagonalen Gitters (höher = detaillierter, langsamer)"
     },
     "num_triangles": {
       "label": "Kurvenglättung",
@@ -757,6 +797,14 @@
       "title": "Heatmap Konnektivität",
       "description": "Die Vernetzung der Verkehrswege wird ausgedrückt durch die Berechnung von Einzugsbereichen für jede Rasterzelle, wobei die erreichbare Fläche der Einzugsbereiche die Konnektivität ausdrückt."
     },
+    "heatmap_2sfca": {
+      "title": "Heatmap 2SFCA",
+      "description": "Die 2SFCA-Methode (Two-Step Floating Catchment Area) bewertet die Erreichbarkeit von Dienstleistungen, indem sie Angebot und Nachfrage in einem zweistufigen Prozess berücksichtigt."
+    },
+    "huff_model": {
+      "title": "Huff-Modell",
+      "description": "Das Huff-Modell ist ein räumliches Interaktionsmodell, das die Wahrscheinlichkeit vorhersagt, mit der Verbraucher bestimmte Einzelhandelsstandorte basierend auf der Attraktivität der Standorte und der Entfernung zu diesen Standorten besuchen."
+    },
     "oev_gueteklassen": {
       "title": "ÖV-Güteklassen",
       "description": "ÖV-Güteklassen zeigen die Attraktivität des öffentlichen Verkehrs in einem bestimmten Gebiet an."
@@ -806,6 +854,10 @@
       "title": "Geokodierung",
       "description": "Wandelt Adressen in geografische Koordinaten um. Unterstützt sowohl vollständige Adresszeichenfolgen als auch strukturierte Adresskomponenten."
     },
+    "clustering_zones": {
+      "title": "Clusterbasierte Zonen",
+      "description": "Erstellt clustrierte Zonen aus Punktobjekten. Wählen Sie die Clustermethode: schnell mit K-Means oder langsamer mit ausgewogenen Zonen."
+    },
     "join": {
       "title": "Objekte verbinden",
       "description": "Überträgt Attribute zwischen Layern basierend auf räumlichen und Attributbeziehungen. Optional können statistische Daten für die verbundenen Objekte berechnet werden."
@@ -847,12 +899,20 @@
     "heatmap_gravity": "Heatmap Gravity",
     "heatmap_connectivity": "Heatmap Connectivity",
     "heatmap_closest_average": "Heatmap Closest Average",
+    "heatmap_2sfca": "Heatmap 2SFCA",
+    "huff_model": "Huff-Modell",
     "oev_gueteklassen": "ÖV-Güteklassen",
     "oev_gueteklassen_stations": "ÖV Stationen",
     "trip_count": "Anzahl Abfahrten Haltepunkte",
     "origin_destination_lines": "QZ Linien",
     "origin_destination_points": "QZ Punkte",
     "join": "Objekte verbinden",
-    "geocoding": "Geokodierung"
-  }
+    "geocoding": "Geokodierung",
+    "clustered_zones": "Clusterbasierte Zonen"
+  },
+  "two_sfca_type": {
+      "twosfca": "2SFCA",
+      "e2sfca": "Erweiterte 2SFCA",
+      "m2sfca": "Modifizierte 2SFCA"
+    }
 }
