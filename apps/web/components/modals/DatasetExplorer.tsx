@@ -30,9 +30,16 @@ interface DatasetExplorerProps {
   open: boolean;
   onClose?: () => void;
   projectId: string;
+  /** Optional callback when a layer is selected. If provided, the layer won't be added to the project. */
+  onLayerSelect?: (layer: Layer) => void;
 }
 
-const DatasetExplorerModal: React.FC<DatasetExplorerProps> = ({ open, onClose, projectId }) => {
+const DatasetExplorerModal: React.FC<DatasetExplorerProps> = ({
+  open,
+  onClose,
+  projectId,
+  onLayerSelect,
+}) => {
   const { t } = useTranslation("common");
   const [queryParams, setQueryParams] = useState<PaginatedQueryParams>({
     order: "descendent",
@@ -59,6 +66,14 @@ const DatasetExplorerModal: React.FC<DatasetExplorerProps> = ({ open, onClose, p
   const handleOnAdd = async () => {
     try {
       if (!selectedDataset) return;
+
+      // If onLayerSelect callback is provided, use it instead of adding to project
+      if (onLayerSelect) {
+        onLayerSelect(selectedDataset);
+        handleOnClose();
+        return;
+      }
+
       setIsBusy(true);
       await addProjectLayers(projectId, [selectedDataset.id]);
       mutateProjectLayers();

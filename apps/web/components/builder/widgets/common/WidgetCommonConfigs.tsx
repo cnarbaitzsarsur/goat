@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import { Checkbox, FormControlLabel, Stack, Tooltip, Typography } from "@mui/material";
+import { Checkbox, FormControlLabel, Stack, Typography } from "@mui/material";
 import { useParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
 
+import { useProjectLayers } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
 import { hasNestedSchemaPath } from "@/lib/utils/zod";
 import type { FormatNumberTypes, WidgetConfigSchema } from "@/lib/validations/widget";
@@ -17,7 +17,10 @@ import type { SelectorItem } from "@/types/map/common";
 import useLayerFields from "@/hooks/map/CommonHooks";
 import { useLayerByGeomType, useLayerDatasetId } from "@/hooks/map/ToolsHooks";
 
-import { WidgetFilterLayout } from "@/components/builder/widgets/data/DataConfig";
+import WidgetColorPicker from "@/components/builder/widgets/common/WidgetColorPicker";
+import CategoryColorConfig from "@/components/builder/widgets/data/CategoryColorConfig";
+import CategoryOrderConfig from "@/components/builder/widgets/data/CategoryOrderConfig";
+import { TargetLayersConfig, WidgetFilterLayout } from "@/components/builder/widgets/data/DataConfig";
 import LayerFieldSelector from "@/components/map/common/LayerFieldSelector";
 import { StatisticSelector } from "@/components/map/common/StatisticSelector";
 import SectionHeader from "@/components/map/panels/common/SectionHeader";
@@ -316,6 +319,10 @@ export const WidgetData = ({ sectionLabel, config, onChange }: WidgetConfigProps
                   groupBy: (config.setup as any).group_by_column_name,
                 }}
                 onChange={(value) => {
+                  // Check if group_by changed - if so, reset custom_order and color_map
+                  const currentGroupBy = (config.setup as any).group_by_column_name;
+                  const groupByChanged = hasGroupColumnNameDef && value.groupBy !== currentGroupBy;
+
                   onChange({
                     ...config,
                     setup: {
@@ -323,7 +330,16 @@ export const WidgetData = ({ sectionLabel, config, onChange }: WidgetConfigProps
                       operation_type: value.method,
                       operation_value: value.value,
                       ...(hasGroupColumnNameDef && { group_by_column_name: value.groupBy }),
+                      // Reset custom_order when group_by changes
+                      ...(groupByChanged && { custom_order: undefined }),
                     },
+                    // Reset color_map when group_by changes
+                    ...(groupByChanged && {
+                      options: {
+                        ...((config as any).options || {}),
+                        color_map: undefined,
+                      },
+                    }),
                   } as WidgetConfigSchema);
                 }}
               />
@@ -343,12 +359,16 @@ export const WidgetSetup = ({ config, onChange }: WidgetConfigProps) => {
   );
 };
 
+// Widget types that handle their own style configuration
+const widgetTypesWithCustomStyle = [widgetTypes.Enum.filter];
+
 export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }: WidgetConfigProps) => {
   const { t } = useTranslation("common");
+  const { projectId } = useParams();
   const schema = widgetSchemaMap[config.type];
 
-  const hasCrossFilterDef = useMemo(() => {
-    return hasNestedSchemaPath(schema, "options.cross_filter");
+  const hasTargetLayersDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.target_layers");
   }, [schema]);
 
   const hasFilterViewPortDef = useMemo(() => {
@@ -367,6 +387,27 @@ export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }:
     return hasNestedSchemaPath(schema, "options.has_padding");
   }, [schema]);
 
+  const hasSelectionResponseDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.selection_response");
+  }, [schema]);
+
+  // Get project layers for target layer selection
+  const { layers: projectLayers } = useProjectLayers(projectId as string);
+
+  // Selection response options for chart widgets
+  const selectionResponseOptions = useMemo(
+    () => [
+      { value: "filter", label: t("filter") },
+      { value: "highlight", label: t("highlight") },
+    ],
+    [t]
+  );
+
+  const selectedSelectionResponse = useMemo(() => {
+    const mode = (config as any)?.options?.selection_response || "filter";
+    return selectionResponseOptions.find((opt) => opt.value === mode);
+  }, [config, selectionResponseOptions]);
+
   const handleOptionChange = useCallback(
     (key: string, value: any) => {
       const updatedOptions = {
@@ -383,13 +424,21 @@ export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }:
 
   const hasOption = useMemo(() => {
     return (
-      hasCrossFilterDef ||
+      hasTargetLayersDef ||
       hasFilterViewPortDef ||
       hasZoomToSelectionDef ||
       hasNumberFormatDef ||
-      hasPaddingDef
+      hasPaddingDef ||
+      hasSelectionResponseDef
     );
-  }, [hasCrossFilterDef, hasFilterViewPortDef, hasZoomToSelectionDef, hasNumberFormatDef, hasPaddingDef]);
+  }, [
+    hasTargetLayersDef,
+    hasFilterViewPortDef,
+    hasZoomToSelectionDef,
+    hasNumberFormatDef,
+    hasPaddingDef,
+    hasSelectionResponseDef,
+  ]);
 
   return (
     <>
@@ -405,35 +454,33 @@ export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }:
           <SectionOptions
             active={active}
             baseOptions={
-              <Stack>
-                {hasCrossFilterDef && (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        color="primary"
-                        // Access config.options safely, using 'as any' for now to match context.
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        checked={!!(config as any)?.options?.cross_filter}
-                        onChange={(e) => {
-                          handleOptionChange("cross_filter", e.target.checked);
-                        }}
-                      />
-                    }
-                    label={
-                      <Stack direction="row" alignItems="center" spacing={2}>
-                        <Typography variant="body2">{t("cross_filter")}</Typography>
-                        <Tooltip title={t("cross_filter_tooltip")} placement="top" arrow>
-                          <HelpOutlineIcon
-                            style={{
-                              fontSize: "12px",
-                            }}
-                          />
-                        </Tooltip>
-                      </Stack>
-                    }
+              <Stack spacing={2}>
+                {/* Selection response for chart widgets (filter vs highlight) */}
+                {hasSelectionResponseDef && (config as any)?.options?.cross_filter && (
+                  <Selector
+                    selectedItems={selectedSelectionResponse}
+                    setSelectedItems={(item: SelectorItem) => {
+                      handleOptionChange("selection_response", item?.value);
+                    }}
+                    items={selectionResponseOptions}
+                    label={t("selection_response")}
+                    tooltip={t("selection_response_tooltip")}
                   />
                 )}
+
+                {/* Target layers config for multi-layer filtering */}
+                {hasTargetLayersDef &&
+                  (config.setup as any)?.layer_project_id &&
+                  (config.setup as any)?.column_name && (
+                    <TargetLayersConfig
+                      layerProjectId={(config.setup as any)?.layer_project_id}
+                      targetLayers={(config as any)?.options?.target_layers}
+                      projectLayers={projectLayers || []}
+                      onTargetLayersChange={(targets) => {
+                        handleOptionChange("target_layers", targets?.length ? targets : undefined);
+                      }}
+                    />
+                  )}
 
                 {hasFilterViewPortDef && (
                   <FormControlLabel
@@ -493,6 +540,270 @@ export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }:
                     }
                     label={<Typography variant="body2">{t("padding")}</Typography>}
                   />
+                )}
+              </Stack>
+            }
+          />
+        </>
+      )}
+    </>
+  );
+};
+
+export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: WidgetConfigProps) => {
+  const { t } = useTranslation("common");
+  const { projectId } = useParams();
+  const schema = widgetSchemaMap[config.type];
+
+  // Check if this widget handles its own style configuration
+  const hasCustomStyleHandling = widgetTypesWithCustomStyle.includes(config.type as any);
+
+  const hasColorDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.color");
+  }, [schema]);
+
+  const hasHighlightColorDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.highlight_color");
+  }, [schema]);
+
+  const hasSelectedColorDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.selected_color");
+  }, [schema]);
+
+  const hasColorMapDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.color_map");
+  }, [schema]);
+
+  const hasColorRangeDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.color_range");
+  }, [schema]);
+
+  const hasCustomOrderDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "setup.custom_order");
+  }, [schema]);
+
+  const hasContextLabelDef = useMemo(() => {
+    return hasNestedSchemaPath(schema, "options.context_label");
+  }, [schema]);
+
+  // Check if we're in highlight mode (for showing selected color option)
+  const isHighlightMode = (config as any)?.options?.selection_response === "highlight";
+
+  // Get layer dataset ID for color/order config
+  const selectedLayerForStyle = useMemo(() => {
+    return (config?.setup as any)?.layer_project_id;
+  }, [config?.setup]);
+
+  const selectedLayerDatasetIdForStyle = useLayerDatasetId(
+    selectedLayerForStyle as number | undefined,
+    projectId as string
+  );
+
+  // Get the group_by_column_name for category styling
+  const groupByColumnNameForStyle = useMemo(() => {
+    return (config?.setup as any)?.group_by_column_name;
+  }, [config?.setup]);
+
+  // Get layer fields for context label field selection
+  const { layerFields: contextLabelFields } = useLayerFields(selectedLayerDatasetIdForStyle || "");
+
+  // Extract options for dependency tracking (text widgets don't have options)
+  const configOptions = (config as any)?.options;
+
+  const contextLabel = useMemo(() => {
+    return configOptions?.context_label;
+  }, [configOptions]);
+
+  const selectedContextField = useMemo(() => {
+    if (!contextLabel?.field) return undefined;
+    return contextLabelFields.find((f) => f.name === contextLabel.field);
+  }, [contextLabel?.field, contextLabelFields]);
+
+  const handleOptionChange = useCallback(
+    (key: string, value: any) => {
+      const updatedOptions = {
+        ...((config as any).options || {}),
+        [key]: value,
+      };
+      onChange({
+        ...config,
+        options: updatedOptions,
+      } as WidgetConfigSchema);
+    },
+    [config, onChange]
+  );
+
+  const handleSetupChange = useCallback(
+    (key: string, value: any) => {
+      onChange({
+        ...config,
+        setup: {
+          ...((config as any).setup || {}),
+          [key]: value,
+        },
+      } as WidgetConfigSchema);
+    },
+    [config, onChange]
+  );
+
+  const hasStyle = useMemo(() => {
+    // Skip for widgets that handle their own style configuration
+    if (hasCustomStyleHandling) return false;
+    return (
+      hasColorDef ||
+      hasHighlightColorDef ||
+      hasSelectedColorDef ||
+      hasColorMapDef ||
+      hasColorRangeDef ||
+      hasCustomOrderDef ||
+      hasContextLabelDef
+    );
+  }, [
+    hasColorDef,
+    hasHighlightColorDef,
+    hasSelectedColorDef,
+    hasColorMapDef,
+    hasColorRangeDef,
+    hasCustomOrderDef,
+    hasContextLabelDef,
+    hasCustomStyleHandling,
+  ]);
+
+  return (
+    <>
+      {hasStyle && (
+        <>
+          <SectionHeader
+            active={active}
+            alwaysActive
+            label={sectionLabel ?? t("style")}
+            disableAdvanceOptions
+            icon={ICON_NAME.STYLE}
+          />
+          <SectionOptions
+            active={active}
+            baseOptions={
+              <Stack spacing={2}>
+                {/* Base color for charts */}
+                {hasColorDef && (
+                  <WidgetColorPicker
+                    label={t("base_color")}
+                    color={(config as any)?.options?.color || "#0e58ff"}
+                    onChange={(color) => handleOptionChange("color", color)}
+                  />
+                )}
+
+                {/* Hover color - always visible when defined */}
+                {hasHighlightColorDef && (
+                  <WidgetColorPicker
+                    label={t("highlight_color")}
+                    color={(config as any)?.options?.highlight_color || "#3b82f6"}
+                    onChange={(color) => handleOptionChange("highlight_color", color)}
+                  />
+                )}
+
+                {/* Selection color - only shown when selection_response is "highlight" */}
+                {hasSelectedColorDef && isHighlightMode && (
+                  <WidgetColorPicker
+                    label={t("selected_color")}
+                    color={(config as any)?.options?.selected_color || "#f5b704"}
+                    onChange={(color) => handleOptionChange("selected_color", color)}
+                  />
+                )}
+
+                {/* Category order + colors for charts (integrated like layer styling ordinal) */}
+                {hasColorMapDef &&
+                  hasCustomOrderDef &&
+                  selectedLayerDatasetIdForStyle &&
+                  groupByColumnNameForStyle && (
+                    <CategoryColorConfig
+                      layerId={selectedLayerDatasetIdForStyle}
+                      fieldName={groupByColumnNameForStyle}
+                      customOrder={(config as any)?.setup?.custom_order}
+                      colorMap={(config as any)?.options?.color_map}
+                      colorRange={(config as any)?.options?.color_range}
+                      colorPalette={(config as any)?.options?.color_range?.colors}
+                      onChange={(order, colorMap) => {
+                        // Update both setup.custom_order and options.color_map atomically
+                        onChange({
+                          ...config,
+                          setup: {
+                            ...((config as any).setup || {}),
+                            custom_order: order.length ? order : undefined,
+                          },
+                          options: {
+                            ...((config as any).options || {}),
+                            color_map: colorMap.length ? colorMap : undefined,
+                          },
+                        } as WidgetConfigSchema);
+                      }}
+                      onPaletteChange={(colorRange, order, colorMap) => {
+                        // Update color_range, custom_order, and color_map atomically
+                        onChange({
+                          ...config,
+                          setup: {
+                            ...((config as any).setup || {}),
+                            custom_order: order.length ? order : undefined,
+                          },
+                          options: {
+                            ...((config as any).options || {}),
+                            color_range: colorRange,
+                            color_map: colorMap.length ? colorMap : undefined,
+                          },
+                        } as WidgetConfigSchema);
+                      }}
+                    />
+                  )}
+
+                {/* Category order only (no color picking) - for widgets with custom_order but no color_map */}
+                {hasCustomOrderDef &&
+                  !hasColorMapDef &&
+                  selectedLayerDatasetIdForStyle &&
+                  groupByColumnNameForStyle && (
+                    <CategoryOrderConfig
+                      layerId={selectedLayerDatasetIdForStyle}
+                      fieldName={groupByColumnNameForStyle}
+                      customOrder={(config as any)?.setup?.custom_order}
+                      onOrderChange={(order) => {
+                        handleSetupChange("custom_order", order.length ? order : undefined);
+                      }}
+                    />
+                  )}
+
+                {/* Context label for pie charts - shows dynamic label based on filtered data */}
+                {hasContextLabelDef && selectedLayerDatasetIdForStyle && (
+                  <>
+                    <LayerFieldSelector
+                      fields={contextLabelFields}
+                      selectedField={selectedContextField}
+                      setSelectedField={(field) => {
+                        handleOptionChange(
+                          "context_label",
+                          field?.name
+                            ? { field: field.name, default_value: contextLabel?.default_value }
+                            : undefined
+                        );
+                      }}
+                      label={t("context_field")}
+                      tooltip={t("context_field_tooltip")}
+                    />
+                    {contextLabel?.field && (
+                      <TextFieldInput
+                        type="text"
+                        label={t("default_label")}
+                        placeholder={t("default_label_placeholder")}
+                        clearable
+                        value={contextLabel?.default_value || ""}
+                        onChange={(value: string) => {
+                          handleOptionChange("context_label", {
+                            field: contextLabel.field,
+                            default_value: value || undefined,
+                          });
+                        }}
+                        tooltip={t("default_label_tooltip")}
+                      />
+                    )}
+                  </>
                 )}
               </Stack>
             }

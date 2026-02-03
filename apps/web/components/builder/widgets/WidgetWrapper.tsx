@@ -125,7 +125,7 @@ const WidgetWrapper: React.FC<WidgetWrapperProps> = ({
   );
 
   return viewOnly ? (
-    <Box sx={{ width: "100%", p: 2, pointerEvents: "all" }}>{widgetContent}</Box>
+    <Box sx={{ width: "100%", p: 1, pointerEvents: "all" }}>{widgetContent}</Box>
   ) : (
     <DraggableWidgetContainer widget={widget} onWidgetDelete={onWidgetDelete}>
       {widgetContent}

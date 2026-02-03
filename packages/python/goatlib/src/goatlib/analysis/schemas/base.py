@@ -126,6 +126,10 @@ class FieldStatistic(BaseModel):
         None,
         description="Field name to compute statistics on. Required for all operations except 'count'.",
     )
+    result_name: Optional[str] = Field(
+        None,
+        description="Custom name for the result column. If not provided, defaults to '{field}_{operation}' or 'count' for count operations.",
+    )
 
     @model_validator(mode="after")
     def validate_field_requirement(self: Self) -> "FieldStatistic":
@@ -137,3 +141,11 @@ class FieldStatistic(BaseModel):
             if self.field is None:
                 raise ValueError(f"Field is required for '{self.operation}' operation.")
         return self
+
+    def get_result_column_name(self: Self) -> str:
+        """Get the result column name, using custom name or generating default."""
+        if self.result_name:
+            return self.result_name
+        if self.operation == StatisticOperation.count:
+            return "count"
+        return f"{self.field}_{self.operation.value}"

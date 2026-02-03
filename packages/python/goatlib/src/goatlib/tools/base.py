@@ -740,6 +740,113 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         """
         return None
 
+    def _export_temp_layer_to_parquet(
+        self: Self,
+        temp_layer_id: str,
+        user_id: str,
+        cql_filter: dict[str, Any] | None = None,
+    ) -> str:
+        """Export a temporary workflow layer to parquet for chained tool input.
+
+        Temporary layers are stored at /data/temporary/{user_id}/{workflow_id}/{node_id}/data.parquet
+        The temp_layer_id format is "{workflow_id}:{node_id}" or "{workflow_id}:{node_id}:{uuid}".
+
+        Args:
+            temp_layer_id: Temp layer ID in format "workflow_id:node_id" or "workflow_id:node_id:uuid"
+            user_id: User UUID for the temp directory path
+            cql_filter: Optional CQL filter (applied via DuckDB query)
+
+        Returns:
+            Path to the parquet file (copy or original if no filter)
+        """
+        import json
+        import tempfile
+
+        from goatlib.storage.query_builder import build_cql_filter
+        from goatlib.tools.temp_writer import TEMP_DATA_ROOT
+
+        # Parse temp_layer_id - can be "workflow_id:node_id" or "workflow_id:node_id:uuid"
+        parts = temp_layer_id.split(":")
+        if len(parts) < 2:
+            raise ValueError(
+                f"Invalid temp_layer_id format: {temp_layer_id}. Expected 'workflow_id:node_id' or 'workflow_id:node_id:uuid'"
+            )
+
+        workflow_id = parts[0]
+        node_id = parts[1]
+        # Third part (uuid) is optional - if provided, use it to find specific file
+        temp_file_uuid = parts[2] if len(parts) > 2 else None
+
+        # Build path matching TempLayerWriter structure:
+        # /data/temporary/user_{user_id}/w_{workflow_id}/n_{node_id}/
+        user_id_clean = user_id.replace("-", "")
+        workflow_id_clean = workflow_id.replace("-", "")
+        base_path = (
+            TEMP_DATA_ROOT
+            / f"user_{user_id_clean}"
+            / f"w_{workflow_id_clean}"
+            / f"n_{node_id}"
+        )
+
+        # Find the parquet file
+        if temp_file_uuid:
+            # Specific file requested
+            temp_parquet_path = base_path / f"t_{temp_file_uuid}.parquet"
+        else:
+            # Find any parquet file (should only be one per node)
+            parquet_files = list(base_path.glob("t_*.parquet"))
+            if not parquet_files:
+                raise FileNotFoundError(
+                    f"No parquet files found in: {base_path}. "
+                    f"The upstream tool may not have completed successfully."
+                )
+            # Use the first (and typically only) parquet file
+            temp_parquet_path = parquet_files[0]
+
+        if not temp_parquet_path.exists():
+            raise FileNotFoundError(
+                f"Temporary layer not found: {temp_parquet_path}. "
+                f"The upstream tool may not have completed successfully."
+            )
+
+        logger.info(f"Reading chained input from temp layer: {temp_parquet_path}")
+
+        # If no filter, just return the temp file path directly
+        if not cql_filter:
+            return str(temp_parquet_path)
+
+        # Apply CQL filter via DuckDB and write to a new temp file
+        # Get column names from parquet
+        columns_result = self.duckdb_con.execute(
+            f"SELECT column_name FROM parquet_schema('{temp_parquet_path}')"
+        )
+        column_names = [row[0] for row in columns_result.fetchall()]
+
+        filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
+        cql_filters = build_cql_filter(filter_dict, column_names, "geometry")
+
+        where_clause = ""
+        if cql_filters.clauses:
+            where_clause = "WHERE " + " AND ".join(cql_filters.clauses)
+
+        # Create filtered output
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix=".parquet", delete=False, prefix="temp_layer_"
+        )
+        temp_path = temp_file.name
+        temp_file.close()
+
+        query = f"""
+            COPY (
+                SELECT * FROM read_parquet('{temp_parquet_path}')
+                {where_clause}
+            ) TO '{temp_path}' (FORMAT PARQUET)
+        """
+        self.duckdb_con.execute(query, cql_filters.params if cql_filters.params else [])
+
+        logger.info(f"Filtered temp layer written to: {temp_path}")
+        return temp_path
+
     def export_layer_to_parquet(
         self: Self,
         layer_id: str,
@@ -754,8 +861,11 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         The layer's actual owner is looked up from the database to correctly
         access layers owned by other users (catalog/shared layers).
 
+        Also supports reading from temporary workflow results when layer_id
+        is in the format "{workflow_id}:{node_id}" (output from tool chaining).
+
         Args:
-            layer_id: Layer UUID string
+            layer_id: Layer UUID string or temp layer ID (workflow_id:node_id)
             user_id: User UUID string (used for fallback if layer info unavailable)
             cql_filter: Optional CQL2-JSON filter dict to apply
             scenario_id: Optional scenario UUID for merging scenario features
@@ -768,6 +878,10 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         import tempfile
 
         from goatlib.storage.query_builder import build_cql_filter
+
+        # Check if this is a temp layer ID (format: workflow_id:node_id)
+        if ":" in layer_id:
+            return self._export_temp_layer_to_parquet(layer_id, user_id, cql_filter)
 
         # Look up the layer's actual owner to correctly access shared/catalog layers
         layer_owner_id = self.get_layer_owner_id_sync(layer_id)
@@ -802,12 +916,17 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         temp_path = temp_file.name
         temp_file.close()
 
-        # Get column names for CQL filter validation
-        columns_result = self._execute_with_retry(
-            "get columns",
-            f"SELECT column_name FROM information_schema.columns WHERE table_catalog = 'lake' AND table_name = 't_{layer_id.replace('-', '')}'",
+        # Detect geometry column name and get column names from table schema
+        cols_result = self._execute_with_retry(
+            "describe table",
+            f"DESCRIBE {table_name}",
         )
-        column_names = [row[0] for row in columns_result.fetchall()]
+        geom_col = "geometry"  # default
+        column_names: list[str] = []
+        for col_name, col_type, *_ in cols_result.fetchall():
+            column_names.append(col_name)
+            if "GEOMETRY" in col_type.upper():
+                geom_col = col_name
 
         # Build WHERE clause
         where_clause = ""
@@ -815,7 +934,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
 
         if cql_filter:
             filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
-            cql_filters = build_cql_filter(filter_dict, column_names, "geometry")
+            cql_filters = build_cql_filter(filter_dict, column_names, geom_col)
             if cql_filters.clauses:
                 where_clause = "WHERE " + " AND ".join(cql_filters.clauses)
                 params = cql_filters.params
@@ -928,7 +1047,6 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             f"DESCRIBE {table_name}",
         ).fetchall()
         columns = [(row[0], row[1]) for row in col_info]
-        col_names = [c[0] for c in columns]
 
         if not new_modified_features:
             # No new/modified features - just filter out deleted
@@ -1061,10 +1179,9 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
 
         1. Generate output layer ID
         2. Run analysis (subclass implements)
-        3. Ingest to DuckLake
-        4. Create layer in PostgreSQL
-        5. Optionally add to project
-        6. Return standardized output
+        3. If temp_mode: write to /data/temporary/ (no DB, no DuckLake)
+        4. Else: Ingest to DuckLake, create layer in PostgreSQL, optionally add to project
+        5. Return standardized output
 
         Args:
             params: Validated tool parameters
@@ -1078,9 +1195,18 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             params.result_layer_name or params.output_name or self.default_output_name
         )
 
+        # Check if we're in temp mode (for workflow preview)
+        temp_mode = getattr(params, "temp_mode", False)
+        workflow_id = getattr(params, "workflow_id", None)
+        node_id = getattr(params, "node_id", None)
+
+        if temp_mode and (not workflow_id or not node_id):
+            raise ValueError("workflow_id and node_id are required when temp_mode=True")
+
         logger.info(
             f"Starting tool: {self.__class__.__name__} "
             f"(user={params.user_id}, output={output_layer_id}, "
+            f"temp_mode={temp_mode}, "
             f"triggered_by={getattr(params, 'triggered_by_email', 'N/A')})"
         )
 
@@ -1089,6 +1215,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         loop = _get_or_create_event_loop()
 
         # Initialize db_service early so it's available in process() for resolve_layer_paths
+        # (Only needed for non-temp mode, but also useful for reading layer info in temp mode)
         loop.run_until_complete(self._init_db_service())
 
         with tempfile.TemporaryDirectory(
@@ -1103,6 +1230,22 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                 f"at {output_parquet}"
             )
 
+            # Branch: temp_mode vs permanent mode
+            if temp_mode:
+                # Temp mode: write to /data/temporary/, no DB records
+                result = self._write_temp_result(
+                    params=params,
+                    output_parquet=output_parquet,
+                    output_name=output_name,
+                    output_layer_id=output_layer_id,
+                )
+
+                # Close the database pool
+                loop.run_until_complete(self._close_db_service())
+
+                return result
+
+            # Permanent mode: full DuckLake + PostgreSQL flow
             # Step 2: Ingest to DuckLake
             table_info = self._ingest_to_ducklake(
                 user_id=params.user_id,
@@ -1172,6 +1315,91 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
 
         logger.info(f"Tool completed: {output_layer_id} ({output_name})")
         return output.model_dump()
+
+    def _write_temp_result(
+        self: Self,
+        params: TParams,
+        output_parquet: Path,
+        output_name: str,
+        output_layer_id: str,
+    ) -> dict[str, Any]:
+        """Write result to temporary storage for workflow preview.
+
+        This writes the parquet to /data/temporary/ and generates PMTiles,
+        but does NOT create any database records. The result can be served
+        via GeoAPI using query params: ?temp=true&workflow_id=xxx&node_id=yyy
+
+        Args:
+            params: Tool parameters (must have workflow_id and node_id)
+            output_parquet: Path to the output parquet file
+            output_name: Display name for the layer
+            output_layer_id: UUID for the layer (for identification)
+
+        Returns:
+            Dict with temp layer info (TempToolOutput format)
+        """
+        from goatlib.tools.temp_writer import TempLayerWriter
+
+        workflow_id = getattr(params, "workflow_id", None)
+        node_id = getattr(params, "node_id", None)
+
+        if not workflow_id or not node_id:
+            raise ValueError("workflow_id and node_id are required for temp_mode")
+
+        # Create temp layer writer
+        writer = TempLayerWriter(
+            user_id=params.user_id,
+            workflow_id=workflow_id,
+            node_id=node_id,
+            pmtiles_enabled=self.settings.pmtiles_enabled if self.settings else True,
+            pmtiles_max_zoom=self.settings.pmtiles_max_zoom if self.settings else 14,
+        )
+
+        # Write to temp storage
+        result = writer.write_from_parquet(
+            source_parquet=output_parquet,
+            layer_name=output_name,
+            process_id=self.get_tool_type(),
+            duckdb_con=self.duckdb_con,
+        )
+
+        logger.info(
+            f"Temp layer written: {result.parquet_path} "
+            f"(workflow={workflow_id}, node={node_id})"
+        )
+
+        # Extract the temp file UUID from the parquet path (t_{uuid}.parquet)
+        temp_file_name = result.parquet_path.stem  # "t_{uuid}"
+        temp_file_uuid = (
+            temp_file_name[2:] if temp_file_name.startswith("t_") else temp_file_name
+        )
+
+        # Build wm_labels for Windmill job tracking
+        wm_labels: list[str] = []
+        triggered_by_email = getattr(params, "triggered_by_email", None)
+        if triggered_by_email:
+            wm_labels.append(triggered_by_email)
+
+        # Return temp-specific output format
+        # temp_layer_id format is "workflow_id:node_id:layer_uuid" for frontend to fetch temp data
+        temp_layer_id = f"{workflow_id}:{node_id}:{temp_file_uuid}"
+        return {
+            "status": "success",
+            "temp_mode": True,
+            "layer_id": temp_file_uuid,  # Use the temp file UUID as layer_id
+            "temp_layer_id": temp_layer_id,
+            "name": output_name,
+            "user_id": params.user_id,
+            "workflow_id": workflow_id,
+            "node_id": node_id,
+            "type": "feature" if result.metadata.geometry_type else "table",
+            "geometry_type": result.metadata.geometry_type,
+            "feature_count": result.metadata.feature_count,
+            "extent": result.metadata.bbox,
+            "parquet_path": str(result.parquet_path),
+            "pmtiles_path": str(result.pmtiles_path) if result.pmtiles_path else None,
+            "wm_labels": wm_labels,
+        }
 
     def _ingest_to_ducklake(
         self: Self,

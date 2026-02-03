@@ -182,7 +182,9 @@ class UIFieldConfig:
     description_key: str | None = None
     hidden: bool = False
     advanced: bool = False
-    optional: bool = False  # Explicitly mark as optional (overrides conditional required)
+    optional: bool = (
+        False  # Explicitly mark as optional (overrides conditional required)
+    )
     visible_when: dict[str, Any] | None = None
     hidden_when: dict[str, Any] | None = None
     mutually_exclusive_group: str | None = None

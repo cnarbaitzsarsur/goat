@@ -69,7 +69,7 @@ class OriginDestinationTool(AnalysisTool):
         self.con.execute(f"""
             CREATE OR REPLACE VIEW od_lines_agg AS
             SELECT
-                ST_MakeLine(ST_Centroid(ANY_VALUE(origin.{geom_col})), ST_Centroid(ANY_VALUE(dest.{geom_col}))) as geom,
+                ST_MakeLine(ST_Centroid(ANY_VALUE(origin.{geom_col})), ST_Centroid(ANY_VALUE(dest.{geom_col}))) as geometry,
                 matrix.{params.origin_column} as origin,
                 matrix.{params.destination_column} as destination,
                 SUM(CAST(matrix.{params.weight_column} AS DOUBLE)) as weight,
@@ -85,7 +85,7 @@ class OriginDestinationTool(AnalysisTool):
             self.con,
             "od_lines_agg",
             output_path_lines,
-            geometry_column="geom",
+            geometry_column="geometry",
         )
 
         # Create points
@@ -102,7 +102,7 @@ class OriginDestinationTool(AnalysisTool):
                 GROUP BY {params.destination_column}
             )
             SELECT
-                ST_Centroid(g.{geom_col}) as geom,
+                ST_Centroid(g.{geom_col}) as geometry,
                 grouped.weight
             FROM grouped
             JOIN {geom_view} g ON CAST(grouped.dest_id AS VARCHAR) = CAST(g.{params.unique_id_column} AS VARCHAR)
@@ -113,7 +113,7 @@ class OriginDestinationTool(AnalysisTool):
             self.con,
             "od_points_agg",
             output_path_points,
-            geometry_column="geom",
+            geometry_column="geometry",
         )
 
         return [
@@ -122,7 +122,7 @@ class OriginDestinationTool(AnalysisTool):
                 DatasetMetadata(
                     path=str(output_path_lines),
                     source_type="vector",
-                    geometry_column="geom",
+                    geometry_column="geometry",
                     crs=crs_str,
                     schema="public",
                     table_name=output_path_lines.stem,
@@ -133,7 +133,7 @@ class OriginDestinationTool(AnalysisTool):
                 DatasetMetadata(
                     path=str(output_path_points),
                     source_type="vector",
-                    geometry_column="geom",
+                    geometry_column="geometry",
                     crs=crs_str,
                     schema="public",
                     table_name=output_path_points.stem,

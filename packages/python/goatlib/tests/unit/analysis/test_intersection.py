@@ -3,9 +3,8 @@
 from pathlib import Path
 
 import duckdb
-
-from goatlib.analysis.schemas.geoprocessing import IntersectionParams
 from goatlib.analysis.geoprocessing.intersection import IntersectionTool
+from goatlib.analysis.schemas.geoprocessing import IntersectionParams
 
 
 def test_intersection_polygons() -> None:

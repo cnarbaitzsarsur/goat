@@ -282,6 +282,139 @@ class FeatureService:
             logger.error(f"Feature by ID error: {e}", exc_info=True)
             return None
 
+    def get_temp_features(
+        self,
+        user_id: str,
+        layer_uuid: str,
+        limit: int = 100,
+        offset: int = 0,
+        bbox: Optional[list[float]] = None,
+        properties: Optional[list[str]] = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Get features from a temporary layer's parquet file.
+
+        Used for workflow preview - searches for t_{layer_uuid}.parquet under user's temp directory.
+
+        Args:
+            user_id: User UUID
+            layer_uuid: The layer UUID (filename is t_{layer_uuid}.parquet)
+            limit: Maximum features to return
+            offset: Number of features to skip
+            bbox: Bounding box filter [minx, miny, maxx, maxy]
+            properties: List of properties to include
+
+        Returns:
+            Tuple of (features, total_count)
+        """
+        from pathlib import Path
+
+        import duckdb
+
+        user_id_clean = user_id.replace("-", "")
+        layer_uuid_clean = layer_uuid.replace("-", "")
+
+        # Temp data is in /data/temporary with structure: user_{uuid}/w_{uuid}/n_{uuid}/t_{layer_uuid}.parquet
+        temp_data_root = Path(settings.DUCKLAKE_DATA_DIR).parent / "temporary"
+        user_path = temp_data_root / f"user_{user_id_clean}"
+
+        # Search for the parquet file by layer_uuid
+        parquet_path = None
+        if user_path.exists():
+            matches = list(user_path.glob(f"**/t_{layer_uuid_clean}.parquet"))
+            if matches:
+                parquet_path = matches[0]
+
+        if not parquet_path or not parquet_path.exists():
+            logger.warning(
+                "Temp parquet not found for layer %s under user %s", layer_uuid, user_id
+            )
+            return [], 0
+
+        try:
+            con = duckdb.connect(":memory:")
+            con.execute("INSTALL spatial; LOAD spatial;")
+
+            # Get total count
+            count_result = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{parquet_path}')"
+            ).fetchone()
+            total_count = count_result[0] if count_result else 0
+
+            # Detect geometry column
+            cols = con.execute(
+                f"DESCRIBE SELECT * FROM read_parquet('{parquet_path}')"
+            ).fetchall()
+            geom_col = None
+            col_names = []
+            for col_name, col_type, *_ in cols:
+                col_names.append(col_name)
+                if "GEOMETRY" in col_type.upper():
+                    geom_col = col_name
+
+            # Build select clause
+            if properties:
+                select_cols = [
+                    f'"{p}"' for p in properties if p != geom_col and p in col_names
+                ]
+            else:
+                select_cols = [f'"{c}"' for c in col_names if c != geom_col]
+
+            if geom_col:
+                select_cols.append(f'ST_AsGeoJSON("{geom_col}") AS geom_json')
+
+            select_clause = ", ".join(select_cols) if select_cols else "*"
+
+            # Build query
+            where_clause = "1=1"
+            if bbox and geom_col and len(bbox) == 4:
+                where_clause = (
+                    f'ST_Intersects("{geom_col}", '
+                    f"ST_MakeEnvelope({bbox[0]}, {bbox[1]}, {bbox[2]}, {bbox[3]}))"
+                )
+
+            query = f"""
+                SELECT {select_clause}
+                FROM read_parquet('{parquet_path}')
+                WHERE {where_clause}
+                LIMIT {limit} OFFSET {offset}
+            """
+
+            results = con.execute(query).fetchall()
+            description = con.execute(query).description
+
+            col_names_result = [desc[0] for desc in description]
+            features = []
+            for row in results:
+                row_dict = dict(zip(col_names_result, row))
+
+                # Extract geometry
+                geometry = None
+                geom_json = row_dict.pop("geom_json", None)
+                if geom_json:
+                    geometry = json.loads(geom_json)
+
+                # Generate feature ID from row index
+                fid = offset + len(features) + 1
+
+                # Sanitize properties
+                sanitized_props = sanitize_properties(row_dict)
+
+                features.append(
+                    {
+                        "type": "Feature",
+                        "id": str(fid),
+                        "geometry": geometry,
+                        "properties": sanitized_props,
+                    }
+                )
+
+            con.close()
+            return features, total_count
+
+        except Exception as e:
+            logger.error(f"Temp features error: {e}", exc_info=True)
+            return [], 0
+
 
 # Singleton instance
 feature_service = FeatureService()

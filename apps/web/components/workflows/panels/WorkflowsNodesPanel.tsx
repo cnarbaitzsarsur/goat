@@ -1,13 +1,34 @@
 "use client";
 
-import { Box, Card, CardHeader, CircularProgress, Grid, Stack, Typography, useTheme } from "@mui/material";
+import {
+  CancelOutlined as CancelOutlinedIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
+} from "@mui/icons-material";
+import {
+  Box,
+  Card,
+  CardHeader,
+  CircularProgress,
+  Collapse,
+  Divider,
+  Grid,
+  IconButton,
+  MenuItem,
+  Select,
+  Stack,
+  Tooltip,
+  Typography,
+  useTheme,
+} from "@mui/material";
 import { styled } from "@mui/material/styles";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDispatch } from "react-redux";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
 
+import { type JobStatusType, dismissJob, useJobs } from "@/lib/api/processes";
 import type { AppDispatch } from "@/lib/store";
 import { selectNode } from "@/lib/store/workflow/slice";
 import type { ProjectLayer } from "@/lib/validations/project";
@@ -24,6 +45,7 @@ import {
   SidePanelTabPanel,
   SidePanelTabs,
 } from "@/components/common/SidePanel";
+import JobProgressItem from "@/components/jobs/JobProgressItem";
 import WorkflowNodeSettings from "@/components/workflows/panels/WorkflowNodeSettings";
 
 const RightPanelContainer = styled(SidePanelContainer)(({ theme }) => ({
@@ -261,22 +283,219 @@ interface HistoryTabContentProps {
   workflowId?: string;
 }
 
-const HistoryTabContent: React.FC<HistoryTabContentProps> = ({ workflowId: _workflowId }) => {
-  const { t } = useTranslation("common");
+type StatusFilter = "all" | JobStatusType;
 
-  // TODO: Implement workflow run history when execution is added
+const HistoryTabContent: React.FC<HistoryTabContentProps> = ({ workflowId }) => {
+  const { t } = useTranslation("common");
+  const theme = useTheme();
+  const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+
+  // Fetch all workflow runner jobs
+  const { jobs, isLoading, mutate } = useJobs(
+    workflowId
+      ? {
+          processID: "workflow_runner",
+        }
+      : undefined
+  );
+
+  // Filter jobs by workflow_id in inputs
+  const workflowJobs = useMemo(() => {
+    if (!jobs?.jobs || !workflowId) return [];
+    return jobs.jobs.filter((job) => {
+      if (job.processID !== "workflow_runner") return false;
+      if (!job.inputs?.workflow_id || job.inputs.workflow_id !== workflowId) return false;
+      // Apply status filter
+      if (statusFilter !== "all" && job.status !== statusFilter) return false;
+      return true;
+    });
+  }, [jobs?.jobs, workflowId, statusFilter]);
+
+  // Check if there are running jobs
+  const hasRunningJobs = useMemo(() => {
+    return workflowJobs.some((job) => job.status === "running" || job.status === "accepted");
+  }, [workflowJobs]);
+
+  // Poll for updates - faster when jobs are running
+  useEffect(() => {
+    const intervalId = setInterval(
+      () => {
+        mutate();
+      },
+      hasRunningJobs ? 3000 : 15000
+    );
+
+    return () => clearInterval(intervalId);
+  }, [hasRunningJobs, mutate]);
+
+  // Handle cancel job
+  const handleCancelJob = useCallback(
+    async (jobId: string) => {
+      setCancellingJobs((prev) => new Set(prev).add(jobId));
+      try {
+        await dismissJob(jobId);
+        mutate();
+      } catch (error) {
+        console.error("Failed to cancel job:", error);
+      } finally {
+        setCancellingJobs((prev) => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
+      }
+    },
+    [mutate]
+  );
+
+  // Calculate duration
+  const getDuration = (started?: string, finished?: string) => {
+    if (!started) return "-";
+    const start = new Date(started);
+    const end = finished ? new Date(finished) : new Date();
+    const diffMs = end.getTime() - start.getTime();
+    if (diffMs < 1000) return "<1s";
+    if (diffMs < 60000) return `${Math.round(diffMs / 1000)}s`;
+    if (diffMs < 3600000) return `${Math.round(diffMs / 60000)}m`;
+    return `${Math.round(diffMs / 3600000)}h`;
+  };
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: 200 }}>
+        <CircularProgress size={24} />
+      </Box>
+    );
+  }
+
   return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: 200,
-        textAlign: "center",
-      }}>
-      <Typography variant="body2" color="text.secondary">
-        {t("no_workflow_runs_yet")}
-      </Typography>
+    <Box>
+      {/* Status filter dropdown */}
+      <Box sx={{ px: 2, pt: 2, pb: 1 }}>
+        <Select
+          size="small"
+          fullWidth
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          sx={{ bgcolor: theme.palette.background.paper }}>
+          <MenuItem value="all">{t("all_states")}</MenuItem>
+          <MenuItem value="successful">{t("successful")}</MenuItem>
+          <MenuItem value="failed">{t("failed")}</MenuItem>
+          <MenuItem value="running">{t("running")}</MenuItem>
+          <MenuItem value="accepted">{t("pending")}</MenuItem>
+          <MenuItem value="dismissed">{t("cancelled")}</MenuItem>
+        </Select>
+      </Box>
+
+      {workflowJobs.length === 0 ? (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: 200,
+            textAlign: "center",
+          }}>
+          <Typography variant="body2" color="text.secondary">
+            {statusFilter === "all" ? t("no_workflow_runs_yet") : t("no_matching_runs")}
+          </Typography>
+        </Box>
+      ) : (
+        <Stack direction="column" divider={<Divider />}>
+          {workflowJobs.map((job) => {
+            const canCancel = job.status === "running" || job.status === "accepted";
+            const isCancelling = cancellingJobs.has(job.jobID);
+            const isExpanded = expandedJobId === job.jobID;
+
+            // Create action button
+            let actionButton: React.ReactNode = undefined;
+            if (canCancel) {
+              actionButton = (
+                <Tooltip title={t("cancel")}>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleCancelJob(job.jobID)}
+                    disabled={isCancelling}
+                    sx={{ color: "error.main" }}>
+                    {isCancelling ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <CancelOutlinedIcon fontSize="small" />
+                    )}
+                  </IconButton>
+                </Tooltip>
+              );
+            } else {
+              // Expand/collapse button for completed jobs
+              actionButton = (
+                <IconButton size="small" onClick={() => setExpandedJobId(isExpanded ? null : job.jobID)}>
+                  {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                </IconButton>
+              );
+            }
+
+            return (
+              <Box key={job.jobID}>
+                <JobProgressItem
+                  id={job.jobID}
+                  type={job.processID}
+                  status={job.status}
+                  name={job.jobID}
+                  date={job.updated || job.created || ""}
+                  actionButton={actionButton}
+                />
+                {/* Expandable details */}
+                <Collapse in={isExpanded}>
+                  <Box
+                    sx={{
+                      px: 4,
+                      py: 2,
+                      bgcolor: theme.palette.action.hover,
+                      borderTop: `1px solid ${theme.palette.divider}`,
+                    }}>
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="caption" color="text.secondary">
+                          {t("started_at")}
+                        </Typography>
+                        <Typography variant="caption" fontWeight={500}>
+                          {job.started
+                            ? new Date(job.started).toLocaleString(undefined, {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "-"}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="caption" color="text.secondary">
+                          {t("duration")}
+                        </Typography>
+                        <Typography variant="caption" fontWeight={500}>
+                          {getDuration(job.started, job.finished)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="caption" color="text.secondary">
+                          {t("triggered_by")}
+                        </Typography>
+                        <Typography variant="caption" fontWeight={500}>
+                          {t("manual_run")}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </Box>
+                </Collapse>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
     </Box>
   );
 };

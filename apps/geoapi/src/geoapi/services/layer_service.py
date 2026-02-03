@@ -49,6 +49,11 @@ class LayerMetadata:
         return [col["name"] for col in self.columns]
 
     @property
+    def column_types(self) -> dict[str, str]:
+        """Get dict mapping column names to their JSON types."""
+        return {col["name"]: col.get("json_type", "string") for col in self.columns}
+
+    @property
     def has_geometry(self) -> bool:
         """Check if layer has geometry."""
         return self.geometry_type is not None

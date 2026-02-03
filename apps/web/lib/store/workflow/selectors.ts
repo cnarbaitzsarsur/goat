@@ -39,3 +39,9 @@ export const selectSelectedNode = (state: RootState) => {
 
 // Select map view request flag
 export const selectRequestMapView = (state: RootState) => state.workflow.requestMapView;
+
+// Select table view request flag
+export const selectRequestTableView = (state: RootState) => state.workflow.requestTableView;
+
+// Select active data panel view (table, map, or null for collapsed)
+export const selectActiveDataPanelView = (state: RootState) => state.workflow.activeDataPanelView;

@@ -15,6 +15,7 @@ import {
   Box,
   IconButton,
   Skeleton,
+  Stack,
   Tab,
   TablePagination,
   Tabs,
@@ -27,21 +28,29 @@ import bbox from "@turf/bbox";
 import "maplibre-gl/dist/maplibre-gl.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import Map, { Layer as MapLayer, Source } from "react-map-gl/maplibre";
 import type { MapRef } from "react-map-gl/maplibre";
 import { useDispatch, useSelector } from "react-redux";
 
-import { useDatasetCollectionItems } from "@/lib/api/layers";
+import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
+
+import { useDataset, useDatasetCollectionItems } from "@/lib/api/layers";
 import { getExtent } from "@/lib/api/processes";
-import { MAPTILER_KEY } from "@/lib/constants";
+import { useTempLayerFeatures } from "@/lib/api/workflows";
+import { GEOAPI_BASE_URL, MAPTILER_KEY } from "@/lib/constants";
 import { DrawProvider } from "@/lib/providers/DrawProvider";
 import type { AppDispatch } from "@/lib/store";
-import { selectRequestMapView } from "@/lib/store/workflow/selectors";
-import { clearMapViewRequest } from "@/lib/store/workflow/slice";
+import { selectRequestMapView, selectRequestTableView } from "@/lib/store/workflow/selectors";
+import {
+  clearMapViewRequest,
+  clearTableViewRequest,
+  setActiveDataPanelView,
+} from "@/lib/store/workflow/slice";
 import { createTheCQLBasedOnExpression } from "@/lib/transformers/filter";
 import { fitBounds } from "@/lib/utils/map/navigate";
 import { globalExtent, wktToGeoJSON } from "@/lib/utils/map/wkt";
 import type { Expression } from "@/lib/validations/filter";
-import type { GetCollectionItemsQueryParams } from "@/lib/validations/layer";
+import type { DatasetCollectionItems, GetCollectionItemsQueryParams } from "@/lib/validations/layer";
 import type { ProjectLayer } from "@/lib/validations/project";
 import type { WorkflowNode } from "@/lib/validations/workflow";
 
@@ -171,80 +180,84 @@ function a11yProps(index: number) {
   };
 }
 
-// Check if node has displayable data
+// Get layer ID from node (either dataset layer ID or tool output layer ID)
 function getNodeDataInfo(
   node: WorkflowNode | null,
-  projectLayers: ProjectLayer[]
+  tempLayerIds?: Record<string, string>
 ): {
   hasData: boolean;
-  layer: ProjectLayer | null;
-  hasGeometry: boolean;
-  isTable: boolean;
+  layerId: string | null; // UUID of the layer (for regular layers)
+  tempLayerId: string | null; // Temp layer ID format: "workflow_id:node_id" (for temp results)
   nodeFilter: { op: string; expressions: Expression[] } | null;
 } {
   if (!node) {
-    return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
+    return { hasData: false, layerId: null, tempLayerId: null, nodeFilter: null };
   }
 
-  // Dataset node
+  // Dataset node - use layerId directly
   if (node.type === "dataset" && node.data.type === "dataset") {
-    const layerProjectId = node.data.layerProjectId;
-    if (!layerProjectId) {
-      return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
+    const layerId = node.data.layerId;
+    if (!layerId) {
+      return { hasData: false, layerId: null, tempLayerId: null, nodeFilter: null };
     }
-    const layer = projectLayers.find((l) => l.id === layerProjectId);
-    if (!layer) {
-      return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
-    }
-    // Check if it's a table (no geometry)
-    const isTable = layer.type === "table";
     // Get node's workflow filter
     const nodeFilter = node.data.filter as { op: string; expressions: Expression[] } | undefined;
     return {
       hasData: true,
-      layer,
-      hasGeometry: !isTable,
-      isTable,
+      layerId,
+      tempLayerId: null,
       nodeFilter: nodeFilter || null,
     };
   }
 
-  // Tool node with results
+  // Tool node with results - check for temp layer ID first, then permanent output
   if (node.type === "tool" && node.data.type === "tool") {
-    const outputLayerProjectId = node.data.outputLayerProjectId;
-    if (!outputLayerProjectId) {
-      return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
+    // Check if we have a temp result from workflow execution
+    const tempLayerId = tempLayerIds?.[node.id];
+    if (tempLayerId) {
+      return {
+        hasData: true,
+        layerId: null,
+        tempLayerId,
+        nodeFilter: null,
+      };
     }
-    const layer = projectLayers.find((l) => l.id === outputLayerProjectId);
-    if (!layer) {
-      return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
+
+    // Fall back to permanent output layer (saved result)
+    const outputLayerId = node.data.outputLayerId;
+    if (!outputLayerId) {
+      return { hasData: false, layerId: null, tempLayerId: null, nodeFilter: null };
     }
-    const isTable = layer.type === "table";
     return {
       hasData: true,
-      layer,
-      hasGeometry: !isTable,
-      isTable,
+      layerId: outputLayerId,
+      tempLayerId: null,
       nodeFilter: null, // Tool nodes don't have workflow filters
     };
   }
 
-  return { hasData: false, layer: null, hasGeometry: false, isTable: false, nodeFilter: null };
+  return { hasData: false, layerId: null, tempLayerId: null, nodeFilter: null };
 }
 
 interface WorkflowDataPanelProps {
   selectedNode: WorkflowNode | null;
-  projectLayers: ProjectLayer[];
+  tempLayerIds?: Record<string, string>; // Map of node_id -> temp_layer_id for executed workflow
+  workflowId?: string; // Current workflow ID
 }
 
-const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, projectLayers }) => {
+const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
+  selectedNode,
+  tempLayerIds = {},
+  workflowId: _workflowId, // Available for future use (e.g., refreshing temp data)
+}) => {
   const { t } = useTranslation("common");
   const theme = useTheme();
   const dispatch = useDispatch<AppDispatch>();
   const mapRef = useRef<MapRef | null>(null);
 
-  // Redux state for map view request
+  // Redux state for map/table view requests
   const requestMapViewFlag = useSelector(selectRequestMapView);
+  const requestTableViewFlag = useSelector(selectRequestTableView);
 
   // Panel state
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -255,41 +268,67 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ y: number; height: number } | null>(null);
 
-  // Get node data info
-  const {
-    hasData,
-    layer,
-    hasGeometry,
-    isTable: _isTable,
-    nodeFilter,
-  } = useMemo(() => getNodeDataInfo(selectedNode, projectLayers), [selectedNode, projectLayers]);
+  // Get node data info - returns layerId (UUID) or tempLayerId for fetching
+  const { hasData, layerId, tempLayerId, nodeFilter } = useMemo(
+    () => getNodeDataInfo(selectedNode, tempLayerIds),
+    [selectedNode, tempLayerIds]
+  );
+
+  // Check if we're viewing a temp layer
+  const isTempLayer = !!tempLayerId;
+
+  // Fetch layer data by layerId (only for regular layers, not temp)
+  const { dataset: layer } = useDataset(!isTempLayer && layerId ? layerId : "");
+
+  // Get the layer UUID
+  const effectiveLayerId = layer?.id || layerId || "";
+
+  // Determine if layer has geometry (assume temp layers have geometry)
+  const isTable = layer?.type === "table";
+  const hasGeometry = isTempLayer ? true : layer ? !isTable : false;
 
   // Open map view when requested via Redux (e.g., from spatial filter creation)
   useEffect(() => {
     if (requestMapViewFlag && hasGeometry) {
       setIsCollapsed(false);
       setTabValue(1); // Map tab
+      dispatch(setActiveDataPanelView("map"));
       dispatch(clearMapViewRequest());
     }
   }, [requestMapViewFlag, hasGeometry, dispatch]);
 
-  // Get layer fields for table and filter CQL generation
-  const { layerFields: fields, isLoading: areFieldsLoading } = useLayerFields(
-    layer?.layer_id || "",
+  // Open table view when requested via Redux
+  useEffect(() => {
+    if (requestTableViewFlag && hasData) {
+      setIsCollapsed(false);
+      setTabValue(0); // Table tab
+      dispatch(setActiveDataPanelView("table"));
+      dispatch(clearTableViewRequest());
+    }
+  }, [requestTableViewFlag, hasData, dispatch]);
+
+  // Get layer fields for regular layers (from layer metadata)
+  const { layerFields: regularFields, isLoading: areRegularFieldsLoading } = useLayerFields(
+    !isTempLayer ? effectiveLayerId : "",
     undefined
   );
 
-  // Build CQL filter from node's workflow filter
+  // Build CQL filter from node's workflow filter (only for regular layers)
+  // Temp layers don't use CQL filters since they're already filtered by the workflow
   const cqlFilter = useMemo(() => {
-    if (!nodeFilter || !nodeFilter.expressions || nodeFilter.expressions.length === 0) {
+    if (isTempLayer || !nodeFilter || !nodeFilter.expressions || nodeFilter.expressions.length === 0) {
       return null;
     }
     try {
-      return createTheCQLBasedOnExpression(nodeFilter.expressions, fields, nodeFilter.op as "and" | "or");
+      return createTheCQLBasedOnExpression(
+        nodeFilter.expressions,
+        regularFields,
+        nodeFilter.op as "and" | "or"
+      );
     } catch {
       return null;
     }
-  }, [nodeFilter, fields]);
+  }, [isTempLayer, nodeFilter, regularFields]);
 
   // Stringify CQL filter for stable comparison
   const cqlFilterString = useMemo(() => {
@@ -308,17 +347,16 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
 
   // Reset query params when layer or filter changes
   useEffect(() => {
-    const layerId = layer?.layer_id || null;
     // Only use node's workflow filter, NOT the layer's CQL filter
     // Workflow filter is independent and should not fall back to layer filter
     const filterString = cqlFilterString;
 
     // Skip if nothing changed
-    if (layerId === prevLayerIdRef.current && filterString === prevFilterRef.current) {
+    if (effectiveLayerId === prevLayerIdRef.current && filterString === prevFilterRef.current) {
       return;
     }
 
-    prevLayerIdRef.current = layerId;
+    prevLayerIdRef.current = effectiveLayerId;
     prevFilterRef.current = filterString;
 
     const newParams: GetCollectionItemsQueryParams = {
@@ -329,16 +367,101 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
       newParams.filter = filterString;
     }
     setDataQueryParams(newParams);
-  }, [layer?.layer_id, cqlFilterString]);
+  }, [effectiveLayerId, cqlFilterString]);
 
-  const { data: tableData } = useDatasetCollectionItems(layer?.layer_id || "", dataQueryParams);
+  // Regular layer data (from DuckLake)
+  const { data: regularTableData } = useDatasetCollectionItems(
+    !isTempLayer && effectiveLayerId ? effectiveLayerId : "",
+    dataQueryParams
+  );
 
-  // Map state
+  // Parse temp layer ID to extract components
+  // Format: "workflow_id:node_id:layer_uuid"
+  const tempLayerParts = useMemo(() => {
+    if (!tempLayerId) return { workflowId: undefined, nodeId: undefined, layerUuid: undefined };
+    const parts = tempLayerId.split(":");
+    if (parts.length === 3) {
+      return { workflowId: parts[0], nodeId: parts[1], layerUuid: parts[2] };
+    }
+    return { workflowId: undefined, nodeId: undefined, layerUuid: undefined };
+  }, [tempLayerId]);
+
+  const { layerUuid: tempLayerUuid } = tempLayerParts;
+
+  // Build vector tile URL for temp layer map (same as regular layers, just use layer UUID)
+  const tempTileUrl = useMemo(() => {
+    if (!tempLayerUuid) return null;
+    return `${GEOAPI_BASE_URL}/collections/${tempLayerUuid}/tiles/WebMercatorQuad/{z}/{x}/{y}`;
+  }, [tempLayerUuid]);
+
+  // Temp layer data (from temp storage) - only for table pagination
+  // Use the layer UUID as the collection ID, just add temp=true
+  const { data: tempTableData } = useTempLayerFeatures(isTempLayer ? tempLayerUuid : undefined, {
+    limit: dataQueryParams.limit,
+    offset: dataQueryParams.offset,
+  });
+
+  // Derive fields from temp layer data (from feature properties)
+  const tempFields = useMemo(() => {
+    if (!isTempLayer || !tempTableData?.features?.length) return [];
+    const firstFeature = tempTableData.features[0] as { properties?: Record<string, unknown> };
+    if (!firstFeature?.properties) return [];
+
+    const hiddenFields = ["layer_id", "id", "h3_3", "h3_6", "geom", "geometry"];
+    return Object.entries(firstFeature.properties)
+      .filter(([key]) => !hiddenFields.includes(key))
+      .map(([key, value]) => ({
+        name: key,
+        type: typeof value === "number" ? "number" : typeof value === "object" ? "object" : "string",
+      }));
+  }, [isTempLayer, tempTableData]);
+
+  // Use appropriate fields based on layer type
+  const fields = isTempLayer ? tempFields : regularFields;
+  const areFieldsLoading = isTempLayer ? false : areRegularFieldsLoading;
+
+  // Use appropriate data source based on layer type
+  // Transform temp layer data to match DatasetCollectionItems interface
+  const tableData: DatasetCollectionItems | undefined = useMemo(() => {
+    if (isTempLayer && tempTableData) {
+      return {
+        type: tempTableData.type,
+        features: tempTableData.features as DatasetCollectionItems["features"],
+        numberMatched: tempTableData.numberMatched ?? 0,
+        numberReturned: tempTableData.numberReturned ?? 0,
+        title: "Temporary Layer",
+        links: [],
+      };
+    }
+    return regularTableData;
+  }, [isTempLayer, tempTableData, regularTableData]);
+
+  // Map state - compute bounds from layer extent or temp GeoJSON
   const mapBounds = useMemo(() => {
-    if (!layer || !hasGeometry) return null;
-    const geojson = wktToGeoJSON(layer.extent || globalExtent);
-    return bbox(geojson) as [number, number, number, number];
-  }, [layer, hasGeometry]);
+    // For regular layers, use the layer extent
+    if (!isTempLayer && layer && hasGeometry) {
+      const geojson = wktToGeoJSON(layer.extent || globalExtent);
+      return bbox(geojson) as [number, number, number, number];
+    }
+    // For temp layers, compute bounds from available features (for initial view)
+    if (isTempLayer && tempTableData && hasGeometry) {
+      const featureCollection = {
+        type: "FeatureCollection" as const,
+        features: tempTableData.features,
+      };
+      try {
+        const bounds = bbox(featureCollection);
+        // Check if bounds are valid (not Infinity)
+        if (bounds.every((b) => isFinite(b))) {
+          return bounds as [number, number, number, number];
+        }
+      } catch {
+        // Fallback to global extent
+      }
+      return bbox(wktToGeoJSON(globalExtent)) as [number, number, number, number];
+    }
+    return null;
+  }, [isTempLayer, layer, hasGeometry, tempTableData]);
 
   // Ensure map tab is not selected if no geometry
   useEffect(() => {
@@ -378,9 +501,9 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
   // Zoom to appropriate extent when opening map view or when filter/layer changes
   useEffect(() => {
     // Reset zoom tracking when not on map view or no valid data
-    if (!hasGeometry || !layer?.layer_id || tabValue !== 1 || isCollapsed) {
+    if (!hasGeometry || !effectiveLayerId || tabValue !== 1 || isCollapsed) {
       // Reset so we zoom again next time map view opens
-      if (tabValue !== 1 || !layer?.layer_id) {
+      if (tabValue !== 1 || !effectiveLayerId) {
         lastZoomKeyRef.current = null;
       }
       return;
@@ -391,11 +514,10 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
       return;
     }
 
-    const layerId = layer.layer_id;
     const filterString = cqlFilterString;
 
     // Create a unique key for this zoom target
-    const zoomKey = `${layerId}:${filterString || "none"}`;
+    const zoomKey = `${effectiveLayerId}:${filterString || "none"}`;
 
     // Skip if we already zoomed to this exact target
     if (lastZoomKeyRef.current === zoomKey) {
@@ -407,14 +529,14 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
 
     // If map is ready, zoom immediately
     if (mapRef.current) {
-      performZoom(layerId, filterString);
+      performZoom(effectiveLayerId, filterString);
       return;
     }
 
     // Map not ready yet - poll for it (faster than waiting for onLoad)
     const checkMapReady = () => {
       if (mapRef.current) {
-        performZoom(layerId, filterString);
+        performZoom(effectiveLayerId, filterString);
         return true;
       }
       return false;
@@ -434,7 +556,7 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
       return () => clearInterval(intervalId);
     }
   }, [
-    layer?.layer_id,
+    effectiveLayerId,
     hasGeometry,
     tabValue,
     isCollapsed,
@@ -451,6 +573,8 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
     if (isCollapsed) {
       setIsCollapsed(false);
     }
+    // Track active view in Redux
+    dispatch(setActiveDataPanelView(newValue === 0 ? "table" : "map"));
   };
 
   // Handle pagination
@@ -508,22 +632,35 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
 
   // Toggle collapse
   const toggleCollapse = useCallback(() => {
-    setIsCollapsed((prev) => !prev);
-  }, []);
+    setIsCollapsed((prev) => {
+      const newCollapsed = !prev;
+      // Track active view in Redux
+      if (newCollapsed) {
+        dispatch(setActiveDataPanelView(null));
+      } else {
+        dispatch(setActiveDataPanelView(tabValue === 0 ? "table" : "map"));
+      }
+      return newCollapsed;
+    });
+  }, [dispatch, tabValue]);
 
   // Layer with visibility and workflow filter for map
-  const layerForMap = useMemo(() => {
+  // Convert Layer to ProjectLayer-like format for MapViewer
+  const layerForMap = useMemo((): ProjectLayer | null => {
     if (!layer || !hasGeometry) return null;
+
     return {
       ...layer,
+      // Add ProjectLayer-specific fields
+      id: 0, // Placeholder - not used for map rendering
+      layer_id: layer.id,
+      folder_id: layer.folder_id,
       properties: {
         ...layer.properties,
         visibility: true,
       },
-      // Apply workflow filter (cqlFilter) if available, otherwise clear any filter
-      // Workflow filter is independent from layer's CQL filter
-      query: cqlFilter ? { ...layer.query, cql: cqlFilter } : { ...layer.query, cql: undefined },
-    };
+      query: cqlFilter ? { cql: cqlFilter } : undefined,
+    } as ProjectLayer;
   }, [layer, hasGeometry, cqlFilter]);
 
   // Don't render if no data available from any node
@@ -531,17 +668,27 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
     return (
       <PanelContainer height={COLLAPSED_HEIGHT} isCollapsed={true} isDragging={false}>
         <PanelHeader>
-          <Tabs value={false} onChange={() => {}} sx={{ minHeight: 36 }}>
+          <Tabs value={false} onChange={() => {}} sx={{ minHeight: 44 }}>
             <Tab
-              label={t("table_view")}
+              label={
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <Icon iconName={ICON_NAME.TABLE} style={{ fontSize: 14 }} />
+                  <span>{t("table")}</span>
+                </Stack>
+              }
               disabled
-              sx={{ minHeight: 36, py: 0.75, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
+              sx={{ minHeight: 44, py: 0, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
               {...a11yProps(0)}
             />
             <Tab
-              label={t("map_view")}
+              label={
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <Icon iconName={ICON_NAME.MAP} style={{ fontSize: 14 }} />
+                  <span>{t("map")}</span>
+                </Stack>
+              }
               disabled
-              sx={{ minHeight: 36, py: 0.75, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
+              sx={{ minHeight: 44, py: 0, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
               {...a11yProps(1)}
             />
           </Tabs>
@@ -554,18 +701,28 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
     <PanelContainer height={panelHeight} isCollapsed={isCollapsed} isDragging={isDragging}>
       {/* Header with tabs */}
       <PanelHeader>
-        <Tabs value={tabValue} onChange={handleTabChange} sx={{ minHeight: 36 }}>
+        <Tabs value={tabValue} onChange={handleTabChange} sx={{ minHeight: 44 }}>
           <Tab
-            label={t("table_view")}
+            label={
+              <Stack direction="row" alignItems="center" spacing={1.5}>
+                <Icon iconName={ICON_NAME.TABLE} style={{ fontSize: 14 }} />
+                <span>{t("table")}</span>
+              </Stack>
+            }
             onClick={() => isCollapsed && setIsCollapsed(false)}
-            sx={{ minHeight: 36, py: 0.75, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
+            sx={{ minHeight: 44, py: 0, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
             {...a11yProps(0)}
           />
           <Tab
-            label={t("map_view")}
+            label={
+              <Stack direction="row" alignItems="center" spacing={1.5}>
+                <Icon iconName={ICON_NAME.MAP} style={{ fontSize: 14 }} />
+                <span>{t("map")}</span>
+              </Stack>
+            }
             disabled={!hasGeometry}
             onClick={() => isCollapsed && hasGeometry && setIsCollapsed(false)}
-            sx={{ minHeight: 36, py: 0.75, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
+            sx={{ minHeight: 44, py: 0, px: 2, fontSize: "0.8125rem", textTransform: "none" }}
             {...a11yProps(1)}
           />
         </Tabs>
@@ -605,7 +762,7 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
                   <TablePagination
                     rowsPerPageOptions={[10, 25, 50]}
                     component="div"
-                    count={tableData.numberMatched}
+                    count={tableData.numberMatched ?? 0}
                     rowsPerPage={dataQueryParams.limit || 50}
                     page={
                       dataQueryParams.offset
@@ -627,7 +784,8 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
 
           {/* Map View */}
           <TabPanel value={tabValue} index={1}>
-            {hasGeometry && layerForMap && mapBounds && (
+            {/* Regular layer map - uses MapViewer with tile-based rendering */}
+            {hasGeometry && !isTempLayer && layerForMap && mapBounds && (
               <MapContainer>
                 <DrawProvider>
                   <MapViewer
@@ -649,6 +807,63 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({ selectedNode, pro
                     }}
                   />
                 </DrawProvider>
+              </MapContainer>
+            )}
+            {/* Temp layer map - uses vector tiles for performance */}
+            {hasGeometry && isTempLayer && tempTileUrl && mapBounds && (
+              <MapContainer>
+                <Map
+                  ref={mapRef}
+                  initialViewState={{
+                    bounds: mapBounds,
+                    fitBoundsOptions: { padding: 40 },
+                  }}
+                  mapStyle={`https://api.maptiler.com/maps/dataviz-light/style.json?key=${MAPTILER_KEY}`}
+                  dragRotate={false}
+                  touchZoomRotate={false}
+                  style={{ width: "100%", height: "100%" }}>
+                  <Source id="temp-layer-source" type="vector" tiles={[tempTileUrl]} maxzoom={14}>
+                    {/* Polygon fill layer */}
+                    <MapLayer
+                      id="temp-layer-fill"
+                      type="fill"
+                      source-layer="default"
+                      filter={["==", ["geometry-type"], "Polygon"]}
+                      paint={{
+                        "fill-color": theme.palette.primary.main,
+                        "fill-opacity": 0.3,
+                      }}
+                    />
+                    {/* Polygon outline layer */}
+                    <MapLayer
+                      id="temp-layer-outline"
+                      type="line"
+                      source-layer="default"
+                      filter={[
+                        "any",
+                        ["==", ["geometry-type"], "Polygon"],
+                        ["==", ["geometry-type"], "LineString"],
+                      ]}
+                      paint={{
+                        "line-color": theme.palette.primary.main,
+                        "line-width": 2,
+                      }}
+                    />
+                    {/* Point layer */}
+                    <MapLayer
+                      id="temp-layer-points"
+                      type="circle"
+                      source-layer="default"
+                      filter={["==", ["geometry-type"], "Point"]}
+                      paint={{
+                        "circle-radius": 6,
+                        "circle-color": theme.palette.primary.main,
+                        "circle-stroke-width": 2,
+                        "circle-stroke-color": "#ffffff",
+                      }}
+                    />
+                  </Source>
+                </Map>
               </MapContainer>
             )}
             {!hasGeometry && (

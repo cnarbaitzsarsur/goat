@@ -85,6 +85,23 @@ class ToolInputBase(BaseModel):
         json_schema_extra=ui_field(section="output", field_order=1, hidden=True),
     )
 
+    # Workflow temp mode fields - for writing to /data/temporary/ instead of DuckLake
+    temp_mode: bool = Field(
+        False,
+        description="If True, write to temp storage instead of DuckLake (for workflow preview)",
+        json_schema_extra=ui_field(section="output", field_order=90, hidden=True),
+    )
+    workflow_id: str | None = Field(
+        None,
+        description="Workflow UUID (required when temp_mode=True)",
+        json_schema_extra=ui_field(section="output", field_order=91, hidden=True),
+    )
+    node_id: str | None = Field(
+        None,
+        description="Node ID in workflow (required when temp_mode=True)",
+        json_schema_extra=ui_field(section="output", field_order=92, hidden=True),
+    )
+
 
 class LayerInputMixin(BaseModel):
     """Mixin for tools that take a single layer as input.

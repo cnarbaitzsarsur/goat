@@ -59,8 +59,9 @@ class KeycloakAuth:
         self._public_key: str | None = None
         self._timeout = timeout
 
-        # Fetch public key on initialization
-        self._fetch_public_key()
+        # Only fetch public key if signature verification is enabled
+        if self._verify_signature:
+            self._fetch_public_key()
 
     def _fetch_public_key(self: "KeycloakAuth") -> None:
         """Fetch Keycloak public key for JWT verification."""

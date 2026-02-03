@@ -21,20 +21,26 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
+import { formatDistance } from "date-fns";
 import { useParams } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { v4 } from "uuid";
 
 import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
+import { useDateFnsLocale } from "@/i18n/utils";
+
+import { useDataset } from "@/lib/api/layers";
 import type { AppDispatch } from "@/lib/store";
-import { requestMapView, updateNode } from "@/lib/store/workflow/slice";
+import { selectActiveDataPanelView } from "@/lib/store/workflow/selectors";
+import { requestMapView, requestTableView, updateNode } from "@/lib/store/workflow/slice";
 import { parseCQLQueryToObject } from "@/lib/transformers/filter";
 import { layerType } from "@/lib/validations/common";
 import type { Expression as ExpressionType } from "@/lib/validations/filter";
 import { FilterType } from "@/lib/validations/filter";
+import type { Layer } from "@/lib/validations/layer";
 import type { ProjectLayer } from "@/lib/validations/project";
 import type { WorkflowNode } from "@/lib/validations/workflow";
 
@@ -96,10 +102,23 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
   const { t } = useTranslation("common");
   const dispatch = useDispatch<AppDispatch>();
   const { projectId } = useParams();
+  const dateLocale = useDateFnsLocale();
 
-  // Fetch project layers
+  // Track active data panel view for button selected state
+  const activeDataPanelView = useSelector(selectActiveDataPanelView);
+
+  // Fetch project layers (for "From project" selector)
   const { layers: fetchedLayers } = useFilteredProjectLayers(projectId as string);
   const layers = fetchedLayers || projectLayers;
+
+  // Get layer ID from node data
+  const nodeLayerId = useMemo(() => {
+    if (node.type !== "dataset" || node.data.type !== "dataset") return null;
+    return node.data.layerId || null;
+  }, [node]);
+
+  // Fetch full layer details using layerId
+  const { dataset: selectedLayer } = useDataset(nodeLayerId || "");
 
   // Tab state
   const [tabValue, setTabValue] = useState(0);
@@ -115,16 +134,8 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
   // Show layer selector (for "From project" option)
   const [showLayerSelector, setShowLayerSelector] = useState(false);
 
-  // Get the selected layer from node data
-  const selectedLayer = useMemo(() => {
-    if (node.type !== "dataset" || node.data.type !== "dataset") return null;
-    const datasetData = node.data;
-    if (!datasetData.layerProjectId) return null;
-    return layers.find((l) => l.id === datasetData.layerProjectId) || null;
-  }, [node, layers]);
-
-  // Get layer fields for filter (prefixed with _ as not yet used but will be needed)
-  useLayerFields(selectedLayer?.layer_id || "");
+  // Get layer fields for filter
+  useLayerFields(nodeLayerId || "");
 
   // Filter expressions state - workflow-specific, initialized from layer's existing filter
   const [expressions, setExpressions] = useState<ExpressionType[]>([]);
@@ -153,7 +164,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
   // Track if we've loaded expressions for current node to avoid re-running on every render
   const loadedNodeIdRef = React.useRef<string | null>(null);
 
-  // Initialize filter expressions from layer and node data (runs once per node selection)
+  // Initialize filter expressions from node data (runs once per node selection)
   useEffect(() => {
     // Skip if we already loaded for this node
     if (loadedNodeIdRef.current === node.id) {
@@ -167,114 +178,30 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
       return;
     }
 
-    if (!selectedLayer) {
-      loadedNodeIdRef.current = node.id;
-      setExpressions([]);
-      return;
-    }
-
-    // If filter was already initialized for this node (even if cleared), don't re-copy from layer
-    // This flag persists in node.data so it survives component unmount/remount
-    if (node.data.filterInitialized) {
-      // Load existing filter if present
-      if (node.data.filter) {
-        const nodeFilter = node.data.filter as {
-          op?: string;
-          expressions?: ExpressionType[];
-          args?: unknown[];
-        };
-        if (nodeFilter.op && nodeFilter.expressions && nodeFilter.expressions.length > 0) {
-          setLogicalOperator(logicalOperators.find((item) => item.value === nodeFilter.op));
-          setExpressions(nodeFilter.expressions);
-        } else if (nodeFilter.op && nodeFilter.args) {
-          const savedExpressions = parseCQLQueryToObject(nodeFilter as { op: string; args: unknown[] });
-          setLogicalOperator(logicalOperators.find((item) => item.value === nodeFilter.op));
-          setExpressions(savedExpressions);
-        } else {
-          setExpressions([]);
-        }
-      } else {
-        setExpressions([]);
-      }
-      loadedNodeIdRef.current = node.id;
-      return;
-    }
-
-    // Check if node has saved workflow filter (legacy nodes without filterInitialized)
+    // Load existing filter from node if present
     if (node.data.filter) {
       const nodeFilter = node.data.filter as {
         op?: string;
         expressions?: ExpressionType[];
         args?: unknown[];
       };
-
-      // Check for workflow filter format (with expressions array)
       if (nodeFilter.op && nodeFilter.expressions && nodeFilter.expressions.length > 0) {
         setLogicalOperator(logicalOperators.find((item) => item.value === nodeFilter.op));
         setExpressions(nodeFilter.expressions);
-        loadedNodeIdRef.current = node.id;
-        return;
-      }
-
-      // Fall back to CQL format (with args array) for backward compatibility
-      if (nodeFilter.op && nodeFilter.args) {
+      } else if (nodeFilter.op && nodeFilter.args) {
+        // Fall back to CQL format (with args array) for backward compatibility
         const savedExpressions = parseCQLQueryToObject(nodeFilter as { op: string; args: unknown[] });
         setLogicalOperator(logicalOperators.find((item) => item.value === nodeFilter.op));
         setExpressions(savedExpressions);
-        loadedNodeIdRef.current = node.id;
-        return;
+      } else {
+        setExpressions([]);
       }
+    } else {
+      setExpressions([]);
     }
-
-    // If node has no filter but layer has CQL filter, copy it to node (one-time inheritance)
-    // This makes the filter independent and editable
-    if (selectedLayer.query?.cql && node.type === "dataset") {
-      const layerCql = selectedLayer.query.cql as { op?: string; args?: unknown[] };
-      if (layerCql.op && layerCql.args) {
-        const layerExpressions = parseCQLQueryToObject(layerCql as { op: string; args: unknown[] });
-        if (layerExpressions.length > 0) {
-          // Copy the filter to the node so it becomes independent
-          const inheritedFilter = {
-            op: layerCql.op,
-            expressions: layerExpressions,
-          };
-          dispatch(
-            updateNode({
-              id: node.id,
-              changes: {
-                data: {
-                  ...node.data,
-                  filter: inheritedFilter,
-                  filterInitialized: true,
-                },
-              },
-            })
-          );
-          setLogicalOperator(logicalOperators.find((item) => item.value === layerCql.op));
-          setExpressions(layerExpressions);
-          loadedNodeIdRef.current = node.id;
-          return;
-        }
-      }
-    }
-
-    // Mark as initialized even if no filter to inherit
-    dispatch(
-      updateNode({
-        id: node.id,
-        changes: {
-          data: {
-            ...node.data,
-            filterInitialized: true,
-          },
-        },
-      })
-    );
     loadedNodeIdRef.current = node.id;
-    setExpressions([]);
-    // Only depend on node.id and selectedLayer.id to avoid re-running on filter changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLayer?.id, node.id]);
+  }, [node.id]);
 
   // Convert layers to selector items
   const layerSelectorItems: SelectorItem[] = useMemo(() => {
@@ -354,6 +281,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
       }
 
       // Update node data with selected layer and inherited filter
+      // Use layer_id (the actual layer UUID) as the main identifier
       dispatch(
         updateNode({
           id: node.id,
@@ -361,12 +289,12 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
             data: {
               ...node.data,
               label: layer.name,
-              layerProjectId: layer.id,
-              layerId: layer.layer_id,
+              layerId: layer.layer_id, // Use layer_id (UUID) as main identifier
               layerName: layer.name,
               geometryType: layer.feature_layer_geometry_type || undefined,
-              // Inherit filter from layer instead of resetting
+              // Inherit filter from project layer (one-way copy)
               filter: inheritedFilter,
+              filterInitialized: true,
             },
           },
         })
@@ -383,6 +311,36 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
       setShowLayerSelector(false);
     },
     [layers, node, dispatch, logicalOperators]
+  );
+
+  // Handle layer selection from Dataset Explorer or Catalog Explorer (workflow-only, no project add)
+  const handleExplorerLayerSelect = useCallback(
+    (layer: Layer) => {
+      if (node.type !== "dataset") return;
+
+      // Update node data with selected layer (without adding to project)
+      dispatch(
+        updateNode({
+          id: node.id,
+          changes: {
+            data: {
+              ...node.data,
+              label: layer.name,
+              // Note: For workflow-only layers, we use layerId directly (not layerProjectId)
+              layerId: layer.id,
+              layerName: layer.name,
+              geometryType: layer.feature_layer_geometry_type || undefined,
+              // No filter inheritance for external datasets
+              filter: undefined,
+              filterInitialized: true,
+            },
+          },
+        })
+      );
+
+      setExpressions([]);
+    },
+    [node, dispatch]
   );
 
   // Create a new filter expression
@@ -494,11 +452,8 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
     });
   }, [expressions]);
 
-  // Get node title
-  const nodeTitle =
-    node.type === "dataset" && node.data.type === "dataset"
-      ? node.data.label || t("imported_dataset")
-      : t("dataset");
+  // Panel title - always "Dataset" for dataset nodes
+  const nodeTitle = t("dataset");
 
   return (
     <Container
@@ -525,38 +480,160 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
 
           {/* SOURCE Tab */}
           <TabPanel value={tabValue} index={0}>
-            <Typography variant="body2" sx={{ fontStyle: "italic", mb: 3 }}>
-              {t("dataset_source_description")}
-            </Typography>
-
             {/* Selected layer info */}
             {selectedLayer && !showLayerSelector && (
-              <Box sx={{ mb: 3 }}>
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                  <Icon
-                    iconName={
-                      selectedLayer.feature_layer_geometry_type === "point"
-                        ? ICON_NAME.POINT_FEATURE
-                        : selectedLayer.feature_layer_geometry_type === "line"
-                          ? ICON_NAME.LINE_FEATURE
-                          : selectedLayer.feature_layer_geometry_type === "polygon"
-                            ? ICON_NAME.POLYGON_FEATURE
-                            : ICON_NAME.TABLE
-                    }
-                    style={{ fontSize: 20 }}
-                  />
-                  <Typography variant="body1" fontWeight="medium">
-                    {selectedLayer.name}
+              <>
+                {/* Details section title */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                    {t("details")}
                   </Typography>
+                  <Divider />
+                </Box>
+
+                <Stack spacing={2.5}>
+                  {/* Name */}
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2" fontWeight="bold">
+                      {t("name")}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {selectedLayer.name}
+                    </Typography>
+                  </Stack>
+
+                  {/* Type */}
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2" fontWeight="bold">
+                      {t("type")}
+                    </Typography>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Icon
+                        iconName={
+                          selectedLayer.feature_layer_geometry_type === "point"
+                            ? ICON_NAME.POINT_FEATURE
+                            : selectedLayer.feature_layer_geometry_type === "line"
+                              ? ICON_NAME.LINE_FEATURE
+                              : selectedLayer.feature_layer_geometry_type === "polygon"
+                                ? ICON_NAME.POLYGON_FEATURE
+                                : ICON_NAME.TABLE
+                        }
+                        style={{ fontSize: 16 }}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        {selectedLayer.type === "feature"
+                          ? t("feature_layer")
+                          : selectedLayer.type === "table"
+                            ? t("table_layer")
+                            : selectedLayer.type}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+
+                  {/* Number of features */}
+                  {selectedLayer.total_count !== undefined && (
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {t("features")}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {selectedLayer.total_count.toLocaleString()}
+                      </Typography>
+                    </Stack>
+                  )}
+
+                  {/* Description */}
+                  {selectedLayer.description && (
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {t("description")}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {selectedLayer.description}
+                      </Typography>
+                    </Stack>
+                  )}
+
+                  {/* Created at */}
+                  {selectedLayer.created_at && (
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {t("created_at")}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {formatDistance(new Date(selectedLayer.created_at), new Date(), {
+                          addSuffix: true,
+                          locale: dateLocale,
+                        })}
+                      </Typography>
+                    </Stack>
+                  )}
+
+                  {/* Last updated */}
+                  {selectedLayer.updated_at && (
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" fontWeight="bold">
+                        {t("last_updated")}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {formatDistance(new Date(selectedLayer.updated_at), new Date(), {
+                          addSuffix: true,
+                          locale: dateLocale,
+                        })}
+                      </Typography>
+                    </Stack>
+                  )}
                 </Stack>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={() => setShowLayerSelector(true)}
-                  sx={{ textTransform: "none" }}>
-                  {t("change")}
-                </Button>
-              </Box>
+
+                {/* Actions section title */}
+                <Box sx={{ mt: 4, mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                    {t("actions")}
+                  </Typography>
+                  <Divider />
+                </Box>
+
+                {/* Action buttons - Table, Map */}
+                <Stack spacing={2}>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant={activeDataPanelView === "table" ? "contained" : "outlined"}
+                      size="small"
+                      startIcon={<Icon iconName={ICON_NAME.TABLE} style={{ fontSize: 16 }} />}
+                      onClick={() => {
+                        // Open table view in data panel
+                        dispatch(requestTableView());
+                      }}
+                      sx={{ borderRadius: 4, textTransform: "none", fontWeight: "bold", flex: 1 }}>
+                      {t("table")}
+                    </Button>
+                    {selectedLayer.type !== "table" && (
+                      <Button
+                        variant={activeDataPanelView === "map" ? "contained" : "outlined"}
+                        size="small"
+                        startIcon={<Icon iconName={ICON_NAME.MAP} style={{ fontSize: 16 }} />}
+                        onClick={() => {
+                          // Open map view in data panel
+                          dispatch(requestMapView());
+                        }}
+                        sx={{ borderRadius: 4, textTransform: "none", fontWeight: "bold", flex: 1 }}>
+                        {t("map")}
+                      </Button>
+                    )}
+                  </Stack>
+
+                  {/* Change dataset button */}
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    fullWidth
+                    startIcon={<Icon iconName={ICON_NAME.LAYERS} style={{ fontSize: 16 }} />}
+                    onClick={handleMenuOpen}
+                    sx={{ borderRadius: 4, textTransform: "none", fontWeight: "bold" }}>
+                    {t("change_dataset")}
+                  </Button>
+                </Stack>
+              </>
             )}
 
             {/* Layer selector (shown when "From project" is selected) */}
@@ -581,9 +658,9 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
               </Box>
             )}
 
-            {/* Add Dataset button */}
-            {!showLayerSelector && (
-              <Box>
+            {/* Add Dataset button (only shown when no layer selected) */}
+            {!showLayerSelector && !selectedLayer && (
+              <Box sx={{ pt: 2 }}>
                 <Button
                   variant="outlined"
                   size="small"
@@ -591,33 +668,35 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
                   startIcon={<Icon iconName={ICON_NAME.PLUS} style={{ fontSize: 15 }} />}
                   onClick={handleMenuOpen}
                   sx={{ borderRadius: 4, textTransform: "none", fontWeight: "bold" }}>
-                  {selectedLayer ? t("change_dataset") : t("add_dataset")}
+                  {t("add_dataset")}
                 </Button>
-                <Menu
-                  anchorEl={menuAnchorEl}
-                  open={menuOpen}
-                  onClose={handleMenuClose}
-                  anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-                  transformOrigin={{ vertical: "top", horizontal: "left" }}
-                  slotProps={{
-                    paper: {
-                      sx: {
-                        width: menuAnchorEl?.offsetWidth,
-                        minWidth: menuAnchorEl?.offsetWidth,
-                      },
-                    },
-                  }}>
-                  {menuItems.map((item) => (
-                    <MenuItem key={item.type} onClick={() => handleMenuItemClick(item.type)}>
-                      <ListItemIcon>
-                        <Icon iconName={item.icon} style={{ fontSize: 15 }} />
-                      </ListItemIcon>
-                      <Typography variant="body2">{item.label}</Typography>
-                    </MenuItem>
-                  ))}
-                </Menu>
               </Box>
             )}
+
+            {/* Menu for dataset source selection */}
+            <Menu
+              anchorEl={menuAnchorEl}
+              open={menuOpen}
+              onClose={handleMenuClose}
+              anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+              transformOrigin={{ vertical: "top", horizontal: "left" }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    width: menuAnchorEl?.offsetWidth,
+                    minWidth: menuAnchorEl?.offsetWidth,
+                  },
+                },
+              }}>
+              {menuItems.map((item) => (
+                <MenuItem key={item.type} onClick={() => handleMenuItemClick(item.type)}>
+                  <ListItemIcon>
+                    <Icon iconName={item.icon} style={{ fontSize: 15 }} />
+                  </ListItemIcon>
+                  <Typography variant="body2">{item.label}</Typography>
+                </MenuItem>
+              ))}
+            </Menu>
           </TabPanel>
 
           {/* FILTER Tab */}
@@ -653,7 +732,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
                     onDelete={handleExpressionDelete}
                     onDuplicate={handleExpressionDuplicate}
                     onUpdate={handleExpressionUpdate}
-                    layerId={selectedLayer?.layer_id}
+                    layerId={selectedLayer?.id}
                   />
                 ))}
               </Stack>
@@ -728,6 +807,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
               open={datasetExplorerOpen}
               onClose={() => setDatasetExplorerOpen(false)}
               projectId={projectId as string}
+              onLayerSelect={handleExplorerLayerSelect}
             />
           )}
           {catalogExplorerOpen && (
@@ -735,6 +815,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
               open={catalogExplorerOpen}
               onClose={() => setCatalogExplorerOpen(false)}
               projectId={projectId as string}
+              onLayerSelect={handleExplorerLayerSelect}
             />
           )}
         </Box>

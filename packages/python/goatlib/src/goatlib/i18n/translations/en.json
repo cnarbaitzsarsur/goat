@@ -900,5 +900,9 @@
       "2fsca": "2SFCA",
       "e2sfca": "Enhanced 2SFCA",
       "m2sfca": "Modified 2SFCA"
+    },
+    "cluster_type": {
+      "kmean": "K-Means",
+      "equal_size": "Balanced Zones"
     }
 }

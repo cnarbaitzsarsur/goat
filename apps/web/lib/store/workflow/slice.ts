@@ -27,6 +27,10 @@ export interface WorkflowState {
   isDirty: boolean;
   // Flag to request opening map view (e.g., from spatial filter)
   requestMapView: boolean;
+  // Flag to request opening table view
+  requestTableView: boolean;
+  // Currently active data panel view (null = collapsed, 'table' = table view, 'map' = map view)
+  activeDataPanelView: "table" | "map" | null;
 }
 
 const initialState: WorkflowState = {
@@ -38,6 +42,8 @@ const initialState: WorkflowState = {
   viewport: { x: 0, y: 0, zoom: 1 },
   isDirty: false,
   requestMapView: false,
+  requestTableView: false,
+  activeDataPanelView: null,
 };
 
 // Helper to convert WorkflowConfig to ReactFlow format
@@ -262,6 +268,21 @@ const workflowSlice = createSlice({
     clearMapViewRequest: (state) => {
       state.requestMapView = false;
     },
+
+    // Request opening table view
+    requestTableView: (state) => {
+      state.requestTableView = true;
+    },
+
+    // Clear table view request (after handling)
+    clearTableViewRequest: (state) => {
+      state.requestTableView = false;
+    },
+
+    // Set active data panel view (for tracking selected state of Table/Map buttons)
+    setActiveDataPanelView: (state, action: PayloadAction<"table" | "map" | null>) => {
+      state.activeDataPanelView = action.payload;
+    },
   },
 });
 
@@ -285,6 +306,9 @@ export const {
   updateWorkflow,
   requestMapView,
   clearMapViewRequest,
+  requestTableView,
+  clearTableViewRequest,
+  setActiveDataPanelView,
 } = workflowSlice.actions;
 
 export const workflowReducer = workflowSlice.reducer;

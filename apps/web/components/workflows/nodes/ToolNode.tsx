@@ -1,19 +1,33 @@
 "use client";
 
 import {
+  CheckCircle as CheckCircleIcon,
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
   PlayArrow as PlayIcon,
   SkipNext as RunToHereIcon,
+  Save as SaveIcon,
   Settings as ToolSettingsIcon,
   Warning as WarningIcon,
 } from "@mui/icons-material";
-import { Box, Button, Divider, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import { styled } from "@mui/material/styles";
+import {
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Divider,
+  GlobalStyles,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import { keyframes, styled } from "@mui/material/styles";
 import { Handle, type NodeProps, NodeToolbar, Position, useEdges } from "@xyflow/react";
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDispatch, useSelector } from "react-redux";
+import { toast } from "react-toastify";
 import { v4 as uuidv4 } from "uuid";
 
 import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
@@ -31,6 +45,48 @@ import type { ToolNodeData } from "@/lib/validations/workflow";
 
 import { useProcessDescription } from "@/hooks/map/useOgcProcesses";
 
+import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext";
+
+/**
+ * Format duration in milliseconds to human-readable string
+ * e.g., 1234 -> "1.2s", 65000 -> "1m 5.0s"
+ */
+const formatDuration = (ms: number): string => {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}m ${remainingSeconds.toFixed(1)}s`;
+};
+
+// Keyframe animation for border angle (animates CSS custom property)
+const borderAngleRunning = keyframes`
+  from {
+    --border-angle: 0deg;
+  }
+  to {
+    --border-angle: 360deg;
+  }
+`;
+
+// Global styles to register @property for --border-angle
+const BorderAnglePropertyStyles = () => (
+  <GlobalStyles
+    styles={`
+      @property --border-angle {
+        syntax: "<angle>";
+        inherits: true;
+        initial-value: 0deg;
+      }
+    `}
+  />
+);
+
 const NodeContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== "selected",
 })<{ selected?: boolean }>(({ theme, selected }) => ({
@@ -38,7 +94,6 @@ const NodeContainer = styled(Box, {
   borderRadius: theme.shape.borderRadius,
   backgroundColor: theme.palette.background.paper,
   border: `2px solid ${selected ? theme.palette.primary.main : theme.palette.divider}`,
-  // Box-shadow for selection indicator (blue glow)
   boxShadow: selected
     ? `0 0 0 4px ${theme.palette.primary.main}40, 0 2px 8px rgba(0, 0, 0, 0.1)`
     : "0 2px 8px rgba(0, 0, 0, 0.08)",
@@ -60,7 +115,10 @@ const NodeHeader = styled(Box)(({ theme }) => ({
   marginBottom: theme.spacing(0.5),
 }));
 
-const NodeIconWrapper = styled(Box)(({ theme }) => ({
+// Icon wrapper with status-based styling
+const NodeIconWrapper = styled(Box, {
+  shouldForwardProp: (prop) => prop !== "status",
+})<{ status?: "pending" | "running" | "completed" | "failed" }>(({ theme, status }) => ({
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -68,8 +126,68 @@ const NodeIconWrapper = styled(Box)(({ theme }) => ({
   height: 40,
   minWidth: 40,
   borderRadius: theme.shape.borderRadius,
-  border: `1px solid ${theme.palette.divider}`,
-  backgroundColor: theme.palette.background.default,
+  position: "relative",
+  // Animated conic-gradient border when running (like the example)
+  ...(status === "running" &&
+    ({
+      "--border-angle": "0deg",
+      background: `linear-gradient(${theme.palette.background.paper}, ${theme.palette.background.paper}) padding-box, conic-gradient(from var(--border-angle), ${theme.palette.warning.main} 50%, ${theme.palette.divider} 50%) border-box`,
+      borderColor: "transparent",
+      borderStyle: "solid",
+      borderWidth: "2px",
+      animation: `${borderAngleRunning} 2s linear infinite`,
+    } as const)),
+  // Static styles for other states
+  ...(status !== "running" && {
+    border: `1px solid ${
+      status === "completed"
+        ? theme.palette.primary.main
+        : status === "failed"
+          ? theme.palette.error.main
+          : theme.palette.divider
+    }`,
+    backgroundColor:
+      status === "completed"
+        ? theme.palette.primary.main + "20"
+        : status === "failed"
+          ? theme.palette.error.light + "30"
+          : theme.palette.background.default,
+  }),
+}));
+
+// Small badge on icon corner
+const IconStatusBadge = styled(Box)(({ theme }) => ({
+  position: "absolute",
+  top: -6,
+  right: -6,
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  backgroundColor: theme.palette.primary.main,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: theme.palette.common.white,
+  zIndex: 2,
+  border: `2px solid ${theme.palette.background.paper}`,
+}));
+
+// Animated border wrapper for running state - smooth conic-gradient rotation
+const AnimatedBorderWrapper = styled(Box, {
+  shouldForwardProp: (prop) => prop !== "isRunning",
+})<{ isRunning?: boolean }>(({ theme: _theme, isRunning: _isRunning }) => ({
+  position: "relative",
+  width: 40,
+  height: 40,
+  minWidth: 40,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  "@property --border-angle": {
+    syntax: "'<angle>'",
+    inherits: "true",
+    initialValue: "0deg",
+  },
 }));
 
 const StyledHandle = styled(Handle, {
@@ -132,6 +250,31 @@ const WarningBadge = styled(Box)(({ theme }) => ({
   zIndex: 1,
 }));
 
+const _ExecutionStatusBadge = styled(Box, {
+  shouldForwardProp: (prop) => prop !== "status",
+})<{ status: "pending" | "running" | "completed" | "failed" }>(({ theme, status }) => ({
+  position: "absolute",
+  top: -10,
+  right: -10,
+  width: 28,
+  height: 28,
+  borderRadius: "50%",
+  backgroundColor:
+    status === "completed"
+      ? theme.palette.success.main
+      : status === "failed"
+        ? theme.palette.error.main
+        : status === "running"
+          ? theme.palette.primary.main
+          : theme.palette.grey[500],
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: theme.palette.common.white,
+  zIndex: 2,
+  border: `2px solid ${theme.palette.background.paper}`,
+}));
+
 interface ToolNodeProps extends NodeProps {
   data: ToolNodeData;
 }
@@ -141,6 +284,41 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
   const dispatch = useDispatch<AppDispatch>();
   const nodes = useSelector(selectNodes);
   const edges = useEdges();
+
+  // Get execution status from context
+  const { isExecuting: _isExecuting, nodeStatuses, nodeExecutionInfo, tempLayerIds, onSaveNode } =
+    useWorkflowExecutionContext();
+  const nodeStatus = nodeStatuses[id];
+  const executionInfo = nodeExecutionInfo[id];
+  const hasTempResult = !!tempLayerIds[id];
+
+  // Debug logging for execution status
+  console.log(
+    `[ToolNode ${id}] nodeStatus:`,
+    nodeStatus,
+    "executionInfo:",
+    executionInfo,
+    "durationMs:",
+    executionInfo?.durationMs
+  );
+
+  // Saving state
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Handle save node result
+  const handleSave = useCallback(async () => {
+    if (!onSaveNode || isSaving) return;
+    setIsSaving(true);
+    try {
+      await onSaveNode(id);
+      toast.success(t("layer_saved_successfully"));
+    } catch (error) {
+      console.error("Failed to save layer:", error);
+      toast.error(t("layer_save_failed"));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [onSaveNode, id, isSaving, t]);
 
   // Fetch process description to determine inputs
   const { process } = useProcessDescription(data.processId);
@@ -427,9 +605,30 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
 
   return (
     <>
+      {/* Global styles for @property --border-angle */}
+      <BorderAnglePropertyStyles />
       {/* NodeToolbar - automatically shown when selected */}
       <NodeToolbar position={Position.Top} align="end">
         <ToolbarContainer>
+          {/* Save button - shown when node has temp results */}
+          {hasTempResult && (
+            <>
+              <Tooltip title={t("save_layer")} placement="top" arrow>
+                <RunButton
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={
+                    isSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon fontSize="small" />
+                  }
+                  onClick={handleSave}
+                  disabled={isSaving}>
+                  {t("save")}
+                </RunButton>
+              </Tooltip>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+            </>
+          )}
           <Tooltip title={t("run_node")} placement="top" arrow>
             <RunButton size="small" variant="text" startIcon={<PlayIcon fontSize="small" />}>
               {t("run_node")}
@@ -456,7 +655,7 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
 
       <NodeContainer selected={selected}>
         {/* Warning badge for missing inputs/config */}
-        {hasWarning && (
+        {hasWarning && !nodeStatus && (
           <Tooltip title={warningMessage} arrow>
             <WarningBadge>
               <WarningIcon sx={{ fontSize: 16 }} />
@@ -510,12 +709,49 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
         </Tooltip>
 
         <NodeHeader>
-          <NodeIconWrapper>
-            <ToolSettingsIcon sx={{ fontSize: 20 }} />
-          </NodeIconWrapper>
+          <AnimatedBorderWrapper isRunning={nodeStatus === "running"}>
+            <NodeIconWrapper status={nodeStatus}>
+              <ToolSettingsIcon
+                sx={{
+                  fontSize: 20,
+                  color:
+                    nodeStatus === "completed"
+                      ? "primary.main"
+                      : nodeStatus === "failed"
+                        ? "error.main"
+                        : nodeStatus === "running"
+                          ? "warning.main"
+                          : "inherit",
+                }}
+              />
+              {/* Checkmark badge on icon */}
+              {nodeStatus === "completed" && (
+                <IconStatusBadge>
+                  <CheckCircleIcon sx={{ fontSize: 12 }} />
+                </IconStatusBadge>
+              )}
+            </NodeIconWrapper>
+          </AnimatedBorderWrapper>
           <Typography variant="body2" fontWeight="bold" sx={{ flex: 1, wordBreak: "break-word" }}>
             {process?.title || t(data.processId, { defaultValue: data.label })}
           </Typography>
+          {/* Duration chip - shown when completed */}
+          {nodeStatus === "completed" && executionInfo?.durationMs && (
+            <Chip
+              label={formatDuration(executionInfo.durationMs)}
+              size="small"
+              color="primary"
+              sx={{
+                height: 20,
+                fontSize: "0.7rem",
+                fontWeight: "bold",
+                ml: 1,
+                "& .MuiChip-label": {
+                  px: 1,
+                },
+              }}
+            />
+          )}
         </NodeHeader>
 
         {/* Show configured parameters */}

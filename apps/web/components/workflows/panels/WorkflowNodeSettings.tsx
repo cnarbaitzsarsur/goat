@@ -8,14 +8,16 @@
  * For dataset nodes, delegates to DatasetNodeSettings.
  */
 import { Box, CircularProgress, Stack, Typography, useTheme } from "@mui/material";
+import { useEdges } from "@xyflow/react";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
 
-import type { AppDispatch } from "@/lib/store";
+import type { AppDispatch, RootState } from "@/lib/store";
+import { selectNodes } from "@/lib/store/workflow/selectors";
 import { updateNode } from "@/lib/store/workflow/slice";
 import {
   getDefaultValues,
@@ -83,6 +85,12 @@ export default function WorkflowNodeSettings({
   const dispatch = useDispatch<AppDispatch>();
   const { projectId } = useParams();
 
+  // Get edges to detect connected inputs
+  const edges = useEdges();
+
+  // Get all nodes from redux store for tracing connections
+  const nodes = useSelector((state: RootState) => selectNodes(state));
+
   // For tool nodes, fetch process description
   const processId = node.type === "tool" && node.data.type === "tool" ? node.data.processId : undefined;
   const { process, isLoading: isLoadingProcess } = useProcessDescription(processId);
@@ -96,6 +104,34 @@ export default function WorkflowNodeSettings({
     if (!process) return {};
     return getDefaultValues(process);
   }, [process]);
+
+  // Detect connected layer inputs and create virtual values for them
+  // This ensures depends_on conditions like {input_layer_id: {$ne: None}} are satisfied
+  const connectedLayerValues = useMemo(() => {
+    if (!process?.inputs) return {};
+
+    const virtualValues: Record<string, string> = {};
+
+    // Get incoming edges to this node
+    const incomingEdges = edges.filter((e) => e.target === node.id);
+
+    // Find layer inputs (widgets: layer-selector, starting-points)
+    for (const [name, input] of Object.entries(process.inputs)) {
+      const widget = input.schema?.["x-ui"]?.widget;
+      if (widget === "layer-selector" || widget === "starting-points") {
+        // Check if this input has a connection
+        const isConnected = incomingEdges.some(
+          (e) => e.targetHandle === name || (!e.targetHandle && Object.keys(process.inputs).length === 1)
+        );
+        if (isConnected) {
+          // Set a placeholder value to satisfy depends_on conditions
+          virtualValues[name] = "__connected__";
+        }
+      }
+    }
+
+    return virtualValues;
+  }, [process, edges, node.id]);
 
   // Form state - initialize with node's saved config or defaults
   const [values, setValues] = useState<Record<string, unknown>>(() => {
@@ -151,17 +187,67 @@ export default function WorkflowNodeSettings({
     return sections.flatMap((section) => section.inputs);
   }, [sections]);
 
+  // Helper to get layer ID from a connected source node
+  const getLayerIdFromSourceNode = useCallback(
+    (inputName: string): string | undefined => {
+      // Find the edge that connects to this input
+      const edge = edges.find(
+        (e) =>
+          e.target === node.id &&
+          (e.targetHandle === inputName || (!e.targetHandle && allInputs.length === 1))
+      );
+      if (!edge) return undefined;
+
+      // Find the source node
+      const sourceNode = nodes.find((n) => n.id === edge.source);
+      if (!sourceNode) return undefined;
+
+      // If source is a dataset node, get its configured layerId
+      if (sourceNode.data?.type === "dataset" && sourceNode.data?.layerId) {
+        return sourceNode.data.layerId as string;
+      }
+
+      // If source is a tool node with temp result, assume it has geometry
+      // (tool outputs generally preserve geometry type)
+      if (sourceNode.data?.type === "tool") {
+        return "__tool_output__"; // Special marker to indicate tool output (has geometry)
+      }
+
+      return undefined;
+    },
+    [edges, node.id, nodes, allInputs.length]
+  );
+
   // Compute layer geometry types for visibility conditions
   const layerGeometryValues = useMemo(() => {
     if (!layers) return {};
 
     const computed: Record<string, boolean> = {};
-    const effectiveValues = { ...defaultValues, ...values };
+    const effectiveValues = { ...defaultValues, ...connectedLayerValues, ...values };
 
     for (const input of allInputs) {
       if (input.inputType === "layer") {
         const projectLayerId = effectiveValues[input.name] as string | undefined;
-        if (projectLayerId) {
+
+        // Check if this is a connected input
+        if (projectLayerId === "__connected__") {
+          // Trace to source node to get actual layer ID
+          const sourceLayerId = getLayerIdFromSourceNode(input.name);
+
+          if (sourceLayerId === "__tool_output__") {
+            // Tool outputs generally have geometry
+            computed[`_${input.name}_has_geometry`] = true;
+          } else if (sourceLayerId) {
+            // Find layer by numeric ID
+            const numericId = parseInt(sourceLayerId, 10);
+            const layer = layers.find((l) => l.id === numericId);
+            computed[`_${input.name}_has_geometry`] = !!layer?.feature_layer_geometry_type;
+          } else {
+            // Connected but can't determine - assume has geometry for better UX
+            computed[`_${input.name}_has_geometry`] = true;
+          }
+        } else if (projectLayerId) {
+          // Direct layer selection
           const numericId = parseInt(projectLayerId, 10);
           const layer = layers.find((l) => l.id === numericId);
           computed[`_${input.name}_has_geometry`] = !!layer?.feature_layer_geometry_type;
@@ -177,7 +263,47 @@ export default function WorkflowNodeSettings({
       geometryFlags.length > 0 && geometryFlags.every((v) => v === true);
 
     return computed;
-  }, [layers, allInputs, values, defaultValues]);
+  }, [layers, allInputs, values, defaultValues, connectedLayerValues, getLayerIdFromSourceNode]);
+
+  // Compute dataset IDs for layer inputs (needed for field selectors)
+  // This maps layer input names to their dataset IDs, handling connected inputs
+  const layerDatasetIds = useMemo(() => {
+    if (!layers) return {};
+
+    const mapping: Record<string, string> = {};
+    const effectiveValues = { ...defaultValues, ...connectedLayerValues, ...values };
+
+    for (const input of allInputs) {
+      if (input.inputType === "layer") {
+        const projectLayerId = effectiveValues[input.name] as string | undefined;
+
+        if (projectLayerId === "__connected__") {
+          // Trace to source node to get actual layer ID
+          const sourceLayerId = getLayerIdFromSourceNode(input.name);
+
+          if (sourceLayerId && sourceLayerId !== "__tool_output__") {
+            // Find layer by numeric ID and get its dataset ID (layer_id)
+            const numericId = parseInt(sourceLayerId, 10);
+            const layer = layers.find((l) => l.id === numericId);
+            if (layer?.layer_id) {
+              mapping[input.name] = layer.layer_id;
+            }
+          }
+          // For tool outputs, we can't determine fields until execution
+          // TODO: Could store output schema in tool results for this
+        } else if (projectLayerId) {
+          // Direct layer selection
+          const numericId = parseInt(projectLayerId, 10);
+          const layer = layers.find((l) => l.id === numericId);
+          if (layer?.layer_id) {
+            mapping[input.name] = layer.layer_id;
+          }
+        }
+      }
+    }
+
+    return mapping;
+  }, [layers, allInputs, values, defaultValues, connectedLayerValues, getLayerIdFromSourceNode]);
 
   // Update a single input value
   const handleInputChange = useCallback(
@@ -293,7 +419,8 @@ export default function WorkflowNodeSettings({
     }
 
     // Effective values for visibility
-    const effectiveValues = { ...defaultValues, ...values, ...layerGeometryValues };
+    // Include connectedLayerValues so depends_on conditions for connected inputs are satisfied
+    const effectiveValues = { ...defaultValues, ...connectedLayerValues, ...values, ...layerGeometryValues };
 
     // Render sections with inputs (matching GenericTool pattern)
     return (
@@ -388,6 +515,7 @@ export default function WorkflowNodeSettings({
                               }
                               formValues={effectiveValues}
                               schemaDefs={process.$defs}
+                              layerDatasetIds={layerDatasetIds}
                             />
                           ))}
                         </Stack>
@@ -413,6 +541,7 @@ export default function WorkflowNodeSettings({
                                 }
                                 formValues={effectiveValues}
                                 schemaDefs={process.$defs}
+                                layerDatasetIds={layerDatasetIds}
                               />
                             ))}
                           </Stack>

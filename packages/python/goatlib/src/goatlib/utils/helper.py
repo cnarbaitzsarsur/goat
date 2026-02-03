@@ -10,4 +10,3 @@ UNIT_TO_METERS = {
     "miles": 1609.34,
     "nautical_miles": 1852.0,
 }
-

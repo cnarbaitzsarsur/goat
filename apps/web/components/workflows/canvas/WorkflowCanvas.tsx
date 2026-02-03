@@ -62,6 +62,11 @@ import { createTextAnnotationNode } from "@/lib/validations/workflow";
 import { useConnectionValidator, useWorkflowProcessDescriptions } from "@/hooks/map/useConnectionValidation";
 import { useWorkflowHistory } from "@/hooks/workflows/useWorkflowHistory";
 
+import {
+  type NodeExecutionInfo,
+  type NodeExecutionStatus,
+  WorkflowExecutionProvider,
+} from "../context/WorkflowExecutionContext";
 import DeletableEdge from "../edges/DeletableEdge";
 import DatasetNode from "../nodes/DatasetNode";
 import TextAnnotationNode from "../nodes/TextAnnotationNode";
@@ -235,9 +240,27 @@ const edgeTypes: EdgeTypes = {
 interface WorkflowCanvasProps {
   onDrop: (event: React.DragEvent) => void;
   onDragOver: (event: React.DragEvent) => void;
+  // Execution props
+  isExecuting?: boolean;
+  canExecute?: boolean;
+  nodeStatuses?: Record<string, NodeExecutionStatus>;
+  nodeExecutionInfo?: Record<string, NodeExecutionInfo>;
+  tempLayerIds?: Record<string, string>;
+  onRun?: () => void;
+  onSaveNode?: (nodeId: string, layerName?: string) => Promise<string | null>;
 }
 
-const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ onDrop, onDragOver }) => {
+const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({
+  onDrop,
+  onDragOver,
+  isExecuting = false,
+  canExecute = false,
+  nodeStatuses = {},
+  nodeExecutionInfo = {},
+  tempLayerIds = {},
+  onRun,
+  onSaveNode,
+}) => {
   const { t } = useTranslation("common");
   const theme = useTheme();
   const dispatch = useDispatch<AppDispatch>();
@@ -580,154 +603,162 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ onDrop, onDragOver }) =
   }
 
   return (
-    <CanvasContainer
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      sx={{ cursor: activeTool === "text" ? "crosshair" : "default" }}>
-      <ReactFlow
-        nodes={localNodes}
-        edges={localEdges}
-        onInit={handleInit}
-        onNodesChange={handleNodesChange}
-        onNodesDelete={handleNodesDelete}
-        onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
-        onPaneClick={handlePaneClick}
-        onPaneMouseMove={handlePaneMouseMove}
-        onMoveEnd={handleMoveEnd}
-        isValidConnection={validateConnection}
-        selectionOnDrag={activeTool === "select" && !isLocked}
-        panOnDrag={activeTool === "select"}
-        nodesDraggable={!isLocked}
-        nodesConnectable={!isLocked}
-        deleteKeyCode={isLocked ? [] : ["Backspace", "Delete"]}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        zIndexMode="manual"
-        elevateNodesOnSelect={false}
-        proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{
-          type: "deletable",
-          zIndex: 500, // Edges appear above text annotations (zIndex: 0) but below tool/dataset nodes (zIndex: 1000)
-          style: { stroke: theme.palette.grey[500], strokeWidth: 2 },
-        }}
-        connectionLineStyle={{ stroke: theme.palette.grey[500], strokeWidth: 2 }}>
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Panel position="bottom-left">
-          <CustomControls isLocked={isLocked} onToggleLock={() => setIsLocked(!isLocked)} />
-        </Panel>
-      </ReactFlow>
-
-      {/* Collapsible MiniMap */}
-      <MiniMapContainer
-        isExpanded={miniMapExpanded}
-        isHovered={miniMapHovered}
-        onMouseEnter={() => setMiniMapHovered(true)}
-        onMouseLeave={() => setMiniMapHovered(false)}>
-        {miniMapExpanded ? (
-          <MiniMapWrapper>
-            <MiniMapToggleButton
-              className="collapse-button"
-              size="small"
-              onClick={() => setMiniMapExpanded(false)}
-              title={t("collapse")}>
-              <CollapseIcon fontSize="small" />
-            </MiniMapToggleButton>
-            <MiniMap
-              nodeColor={(node) => (node.type === "textAnnotation" ? "transparent" : theme.palette.grey[500])}
-              maskColor={theme.palette.mode === "dark" ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.8)"}
-              style={{ position: "relative", margin: 0 }}
-            />
-          </MiniMapWrapper>
-        ) : (
-          <MiniMapToggleButton onClick={() => setMiniMapExpanded(true)} title={t("expand")}>
-            <ExpandIcon fontSize="small" />
-          </MiniMapToggleButton>
-        )}
-      </MiniMapContainer>
-
-      {/* Drawing overlay for text annotation tool */}
-      {activeTool === "text" && (
-        <Box
-          onMouseDown={handlePaneMouseDown}
-          onMouseMove={handlePaneMouseMove}
-          onMouseUp={handlePaneMouseUp}
-          onMouseLeave={handlePaneMouseUp}
-          sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            cursor: "crosshair",
-            zIndex: 5,
+    <WorkflowExecutionProvider
+      isExecuting={isExecuting}
+      nodeStatuses={nodeStatuses}
+      nodeExecutionInfo={nodeExecutionInfo}
+      tempLayerIds={tempLayerIds}
+      onSaveNode={onSaveNode}>
+      <CanvasContainer
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        sx={{ cursor: activeTool === "text" ? "crosshair" : "default" }}>
+        <ReactFlow
+          nodes={localNodes}
+          edges={localEdges}
+          onInit={handleInit}
+          onNodesChange={handleNodesChange}
+          onNodesDelete={handleNodesDelete}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
+          onPaneClick={handlePaneClick}
+          onPaneMouseMove={handlePaneMouseMove}
+          onMoveEnd={handleMoveEnd}
+          isValidConnection={validateConnection}
+          selectionOnDrag={activeTool === "select" && !isLocked}
+          panOnDrag={activeTool === "select"}
+          nodesDraggable={!isLocked}
+          nodesConnectable={!isLocked}
+          deleteKeyCode={isLocked ? [] : ["Backspace", "Delete"]}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          zIndexMode="manual"
+          elevateNodesOnSelect={false}
+          proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{
+            type: "deletable",
+            zIndex: 500, // Edges appear above text annotations (zIndex: 0) but below tool/dataset nodes (zIndex: 1000)
+            style: { stroke: theme.palette.grey[500], strokeWidth: 2 },
           }}
+          connectionLineStyle={{ stroke: theme.palette.grey[500], strokeWidth: 2 }}>
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+          <Panel position="bottom-left">
+            <CustomControls isLocked={isLocked} onToggleLock={() => setIsLocked(!isLocked)} />
+          </Panel>
+        </ReactFlow>
+
+        {/* Collapsible MiniMap */}
+        <MiniMapContainer
+          isExpanded={miniMapExpanded}
+          isHovered={miniMapHovered}
+          onMouseEnter={() => setMiniMapHovered(true)}
+          onMouseLeave={() => setMiniMapHovered(false)}>
+          {miniMapExpanded ? (
+            <MiniMapWrapper>
+              <MiniMapToggleButton
+                className="collapse-button"
+                size="small"
+                onClick={() => setMiniMapExpanded(false)}
+                title={t("collapse")}>
+                <CollapseIcon fontSize="small" />
+              </MiniMapToggleButton>
+              <MiniMap
+                nodeColor={(node) =>
+                  node.type === "textAnnotation" ? "transparent" : theme.palette.grey[500]
+                }
+                maskColor={theme.palette.mode === "dark" ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.8)"}
+                style={{ position: "relative", margin: 0 }}
+              />
+            </MiniMapWrapper>
+          ) : (
+            <MiniMapToggleButton onClick={() => setMiniMapExpanded(true)} title={t("expand")}>
+              <ExpandIcon fontSize="small" />
+            </MiniMapToggleButton>
+          )}
+        </MiniMapContainer>
+
+        {/* Drawing overlay for text annotation tool */}
+        {activeTool === "text" && (
+          <Box
+            onMouseDown={handlePaneMouseDown}
+            onMouseMove={handlePaneMouseMove}
+            onMouseUp={handlePaneMouseUp}
+            onMouseLeave={handlePaneMouseUp}
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              cursor: "crosshair",
+              zIndex: 5,
+            }}
+          />
+        )}
+
+        {/* Drawing rectangle preview */}
+        {isDrawing && drawRect && (
+          <Box
+            sx={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              pointerEvents: "none",
+              zIndex: 6,
+            }}>
+            <svg width="100%" height="100%" style={{ overflow: "visible" }}>
+              <rect
+                x={drawRect.x}
+                y={drawRect.y}
+                width={drawRect.width}
+                height={drawRect.height}
+                fill={theme.palette.primary.main}
+                fillOpacity={0.1}
+                stroke={theme.palette.primary.main}
+                strokeWidth={2}
+                strokeDasharray="5,5"
+                style={{
+                  transform: `translate(${reduxViewport?.x || 0}px, ${reduxViewport?.y || 0}px) scale(${reduxViewport?.zoom || 1})`,
+                  transformOrigin: "0 0",
+                }}
+              />
+            </svg>
+          </Box>
+        )}
+
+        {/* Bottom Toolbar */}
+        <CanvasToolbar
+          activeTool={activeTool}
+          onToolChange={setActiveTool}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undo}
+          onRedo={redo}
+          onRun={onRun || (() => {})}
+          isRunning={isExecuting}
+          canRun={canExecute && localNodes.length > 0}
         />
-      )}
 
-      {/* Drawing rectangle preview */}
-      {isDrawing && drawRect && (
-        <Box
-          sx={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-            pointerEvents: "none",
-            zIndex: 6,
-          }}>
-          <svg width="100%" height="100%" style={{ overflow: "visible" }}>
-            <rect
-              x={drawRect.x}
-              y={drawRect.y}
-              width={drawRect.width}
-              height={drawRect.height}
-              fill={theme.palette.primary.main}
-              fillOpacity={0.1}
-              stroke={theme.palette.primary.main}
-              strokeWidth={2}
-              strokeDasharray="5,5"
-              style={{
-                transform: `translate(${reduxViewport?.x || 0}px, ${reduxViewport?.y || 0}px) scale(${reduxViewport?.zoom || 1})`,
-                transformOrigin: "0 0",
-              }}
-            />
-          </svg>
-        </Box>
-      )}
-
-      {/* Bottom Toolbar */}
-      <CanvasToolbar
-        activeTool={activeTool}
-        onToolChange={setActiveTool}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={undo}
-        onRedo={redo}
-        onRun={() => {
-          // TODO: Implement run workflow
-        }}
-        canRun={localNodes.length > 0}
-      />
-
-      {/* Empty canvas hint */}
-      {localNodes.length === 0 && (
-        <EmptyState>
-          <EmptyStateCard>
-            <EmptyStateIconWrapper>
-              <WorkflowIcon sx={{ fontSize: 32 }} />
-            </EmptyStateIconWrapper>
-            <Typography variant="subtitle1" fontWeight="medium" color="text.primary">
-              {t("start_building_workflow")}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {t("drag_tools_to_start")}
-            </Typography>
-          </EmptyStateCard>
-        </EmptyState>
-      )}
-    </CanvasContainer>
+        {/* Empty canvas hint */}
+        {localNodes.length === 0 && (
+          <EmptyState>
+            <EmptyStateCard>
+              <EmptyStateIconWrapper>
+                <WorkflowIcon sx={{ fontSize: 32 }} />
+              </EmptyStateIconWrapper>
+              <Typography variant="subtitle1" fontWeight="medium" color="text.primary">
+                {t("start_building_workflow")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t("drag_tools_to_start")}
+              </Typography>
+            </EmptyStateCard>
+          </EmptyState>
+        )}
+      </CanvasContainer>
+    </WorkflowExecutionProvider>
   );
 };
 

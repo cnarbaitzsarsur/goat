@@ -155,13 +155,24 @@ class JoinTool(AnalysisTool):
         if params.spatial_relationship == SpatialRelationshipType.intersects:
             return f"ST_Intersects({target_geom_ref}, {join_geom_ref})"
         elif params.spatial_relationship == SpatialRelationshipType.within_distance:
-            # Convert distance to meters for ST_Distance (assumes data is in meters/degrees)
+            # Convert distance to meters
             distance_meters = params.distance * self.DISTANCE_UNIT_FACTORS.get(
                 params.distance_units, 1.0
             )
-            return (
-                f"ST_Distance({target_geom_ref}, {join_geom_ref}) <= {distance_meters}"
-            )
+            # Use UTM transformation for accurate distance in meters.
+            # This works for all geometry types (Point, LineString, Polygon, Multi*).
+            # Dynamic UTM zone based on target feature centroid.
+            wgs84_proj = "'+proj=longlat +datum=WGS84 +no_defs'"
+            utm_zone_expr = f"""
+                ('EPSG:' || CAST((
+                    CASE WHEN ST_Y(ST_Centroid({target_geom_ref})) >= 0 THEN 32600 ELSE 32700 END
+                    + CAST(FLOOR((ST_X(ST_Centroid({target_geom_ref})) + 180) / 6) + 1 AS INT)
+                ) AS VARCHAR))
+            """
+            return f"""ST_Distance(
+                ST_Transform({target_geom_ref}, {wgs84_proj}, {utm_zone_expr}),
+                ST_Transform({join_geom_ref}, {wgs84_proj}, {utm_zone_expr})
+            ) <= {distance_meters}"""
         elif params.spatial_relationship == SpatialRelationshipType.identical_to:
             return f"ST_Equals({target_geom_ref}, {join_geom_ref})"
         elif params.spatial_relationship == SpatialRelationshipType.completely_contains:
@@ -332,17 +343,25 @@ class JoinTool(AnalysisTool):
         con = self.con
 
         # Build aggregation expressions
-        agg_expressions = ["COUNT(*) as match_count"]
+        agg_expressions = []
+        has_count = False
 
         for field_stat in params.field_statistics:
             operation = field_stat.operation
+            result_col = field_stat.get_result_column_name()
             if operation.value == "count":
-                # Count doesn't need a field - already added match_count above
-                continue
-            field_name = field_stat.field
-            field_ref = f"join_data.{field_name}"
-            agg_expr = self.get_statistics_sql(field_ref, operation.value)
-            agg_expressions.append(f"{agg_expr} as {field_name}_{operation.value}")
+                # Count doesn't need a field
+                agg_expressions.append(f"COUNT(*) as {result_col}")
+                has_count = True
+            else:
+                field_name = field_stat.field
+                field_ref = f"join_data.{field_name}"
+                agg_expr = self.get_statistics_sql(field_ref, operation.value)
+                agg_expressions.append(f"{agg_expr} as {result_col}")
+
+        # Always include a match count if not already specified
+        if not has_count:
+            agg_expressions.insert(0, "COUNT(*) as match_count")
 
         agg_clause = ", ".join(agg_expressions)
 
@@ -376,10 +395,18 @@ class JoinTool(AnalysisTool):
         """Execute join with only count of matches."""
         con = self.con
 
+        # Get custom result column name if specified in field_statistics
+        count_col = "match_count"
+        if params.field_statistics:
+            for field_stat in params.field_statistics:
+                if field_stat.operation.value == "count":
+                    count_col = field_stat.get_result_column_name()
+                    break
+
         query = f"""
         CREATE OR REPLACE TEMP TABLE count_joins AS
         SELECT {', '.join([f'target.{f}' for f in self._get_raw_field_names(target_table)])},
-               COUNT(join_data.*) as match_count
+               COUNT(join_data.*) as {count_col}
         FROM {target_table} target
         {join_type_sql} {join_table} join_data
         ON {join_condition}

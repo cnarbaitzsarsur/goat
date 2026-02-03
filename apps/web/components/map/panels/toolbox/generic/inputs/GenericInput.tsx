@@ -37,6 +37,8 @@ interface GenericInputProps {
   schemaDefs?: Record<string, OGCInputSchema>;
   /** Layer IDs to exclude from layer selectors (for repeatable objects) */
   excludedLayerIds?: string[];
+  /** Map of layer input names to their dataset IDs (for connected layers in workflows) */
+  layerDatasetIds?: Record<string, string>;
 }
 
 export default function GenericInput({
@@ -49,6 +51,7 @@ export default function GenericInput({
   formValues = {},
   schemaDefs,
   excludedLayerIds,
+  layerDatasetIds,
 }: GenericInputProps) {
   switch (input.inputType) {
     case "layer":
@@ -71,6 +74,7 @@ export default function GenericInput({
           onChange={onChange}
           disabled={disabled}
           formValues={formValues}
+          layerDatasetIds={layerDatasetIds}
         />
       );
 

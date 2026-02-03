@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Optional, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from goatlib.analysis.geoanalysis.aggregate_points import AggregatePointsTool
 from goatlib.analysis.schemas.aggregate import (
@@ -29,9 +29,9 @@ from goatlib.analysis.schemas.ui import (
 from goatlib.models.io import DatasetMetadata
 from goatlib.tools.base import BaseToolRunner
 from goatlib.tools.schemas import (
-    get_default_layer_name,
     ScenarioSelectorMixin,
     ToolInputBase,
+    get_default_layer_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,14 @@ class AggregatePointsToolParams(
             widget_options={"source_layer": "source_layer_id"},
         ),
     )
+
+    @field_validator("column_statistics", mode="before")
+    @classmethod
+    def wrap_column_statistics_in_list(cls, value: dict | List[dict]) -> List[dict]:
+        """Convert a single column_statistics dict to a list for backwards compatibility."""
+        if isinstance(value, dict):
+            return [value]
+        return value
 
     # Override group_by_field to use source_layer_id instead of source_path
     group_by_field: Optional[List[str]] = Field(

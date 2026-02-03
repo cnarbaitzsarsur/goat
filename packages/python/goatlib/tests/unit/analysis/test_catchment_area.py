@@ -1,7 +1,6 @@
 """Tests for catchment area schemas and CatchmentAreaTool."""
 
 import pytest
-
 from goatlib.analysis.accessibility import CatchmentAreaTool
 from goatlib.analysis.schemas import (
     AccessEgressMode,

@@ -315,6 +315,7 @@ class TileService:
 
         This bypasses the DuckDB schema lookup by searching the filesystem directly.
         PMTiles are stored as: {tiles_data_dir}/{schema_name}/t_{layer_id_no_hyphens}.pmtiles
+        Temp PMTiles are stored as: {temp_data_dir}/**/t_{layer_id_no_hyphens}.pmtiles
 
         Args:
             layer_id: Layer UUID (with or without hyphens)
@@ -333,6 +334,14 @@ class TileService:
         # Search for PMTiles file: */t_{layer_id}.pmtiles
         pattern = f"*/t_{layer_id_normalized}.pmtiles"
         matches = list(self.tiles_data_dir.glob(pattern))
+
+        # Also search in temp directory
+        if not matches:
+            temp_data_dir = self.tiles_data_dir.parent / "temporary"
+            if temp_data_dir.exists():
+                matches = list(
+                    temp_data_dir.glob(f"**/t_{layer_id_normalized}.pmtiles")
+                )
 
         if matches:
             path = matches[0]

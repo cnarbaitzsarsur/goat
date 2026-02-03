@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Tuple
 
-from goatlib.analysis.schemas.geoprocessing import ClipParams
 from goatlib.analysis.geoprocessing.clip import ClipTool
+from goatlib.analysis.schemas.geoprocessing import ClipParams
 
 
 def benchmark_clip_large_dataset() -> Tuple[float, int, str]:
@@ -36,7 +36,7 @@ def benchmark_clip_large_dataset() -> Tuple[float, int, str]:
         input_path=landuse_data, overlay_path=munich_boundary, output_path=output_path
     )
 
-    print(f"🔧 Benchmark: Large Dataset Clip Operation")
+    print("🔧 Benchmark: Large Dataset Clip Operation")
     print(f"📊 Input: Bayern landuse data ({landuse_data})")
     print(
         f"✂️  Clip boundary: Munich and County (multiple features) ({munich_boundary})"
@@ -57,7 +57,7 @@ def benchmark_clip_large_dataset() -> Tuple[float, int, str]:
     # Get result info
     output_size_mb = Path(output_path).stat().st_size / (1024 * 1024)
 
-    print(f"✅ Benchmark completed!")
+    print("✅ Benchmark completed!")
     print(f"⏱️  Execution time: {execution_time:.2f} seconds")
     print(f"📄 Output file size: {output_size_mb:.1f} MB")
     print(f"🗂️  Results: {len(results)} datasets created")
@@ -75,9 +75,9 @@ def benchmark_summary():
     try:
         exec_time, file_size, output_file = benchmark_clip_large_dataset()
 
-        print(f"\n📋 BENCHMARK RESULTS:")
-        print(f"   Operation: Clip (Zuschneiden)")
-        print(f"   Dataset: Bayern Landuse (~6.8M features)")
+        print("\n📋 BENCHMARK RESULTS:")
+        print("   Operation: Clip (Zuschneiden)")
+        print("   Dataset: Bayern Landuse (~6.8M features)")
         print(f"   Execution Time: {exec_time:.2f}s")
         print(f"   Output Size: {file_size:.1f} MB")
         print(f"   Performance: {6_794_964 / exec_time:.0f} features/second")

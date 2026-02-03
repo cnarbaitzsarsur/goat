@@ -6,7 +6,6 @@ validation (required fields, types, enums) is already tested by Pydantic.
 """
 
 import pytest
-
 from goatlib.analysis.schemas.geoprocessing import BufferParams, DistanceType
 
 

@@ -3,9 +3,8 @@
 from pathlib import Path
 
 import duckdb
-
-from goatlib.analysis.schemas.geoprocessing import CentroidParams
 from goatlib.analysis.geoprocessing.centroid import CentroidTool
+from goatlib.analysis.schemas.geoprocessing import CentroidParams
 
 
 def test_centroid_polygons() -> None:

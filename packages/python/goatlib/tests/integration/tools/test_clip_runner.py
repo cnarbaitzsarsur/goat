@@ -13,7 +13,6 @@ import asyncio
 from pathlib import Path
 
 import pytest
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.clip import ClipToolParams, ClipToolRunner
 

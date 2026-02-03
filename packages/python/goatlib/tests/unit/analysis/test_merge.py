@@ -3,10 +3,9 @@
 from pathlib import Path
 
 import duckdb
-
 import pytest
-from goatlib.analysis.schemas.data_management import MergeParams
 from goatlib.analysis.data_management.merge import MergeTool
+from goatlib.analysis.schemas.data_management import MergeParams
 
 
 def test_merge_two_point_layers() -> None:

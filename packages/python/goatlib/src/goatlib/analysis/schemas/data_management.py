@@ -9,7 +9,7 @@ from typing import List, Literal, Optional, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from goatlib.analysis.schemas.base import FieldStatistic, StatisticOperation
+from goatlib.analysis.schemas.base import FieldStatistic
 
 
 class SpatialRelationshipType(StrEnum):

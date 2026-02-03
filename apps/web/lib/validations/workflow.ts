@@ -16,17 +16,16 @@ export type NodeStatus = z.infer<typeof nodeStatusSchema>;
 // ============================================================================
 
 /**
- * Data schema for a dataset node - represents a project layer input
+ * Data schema for a dataset node - represents a layer input
  */
 export const datasetNodeDataSchema = z.object({
   type: z.literal("dataset"),
   label: z.string(),
-  // Project layer reference
-  layerProjectId: z.number().optional(), // Project layer ID (integer)
-  layerId: z.string().uuid().optional(), // Layer UUID for execution
+  // Layer reference - use layerId as the main identifier
+  layerId: z.string().uuid().optional(), // Layer UUID - main identifier
   layerName: z.string().optional(),
   geometryType: z.string().optional(), // "point", "line", "polygon", etc.
-  // Filter applied to the layer
+  // Filter applied to the layer (workflow-specific, not persisted to layer)
   filter: z.record(z.unknown()).optional(), // CQL2-JSON filter
   filterInitialized: z.boolean().optional(), // True once filter has been initialized (prevents re-inheritance)
 });
@@ -48,8 +47,7 @@ export const toolNodeDataSchema = z.object({
   config: z.record(z.unknown()).default({}),
   // Execution state
   status: nodeStatusSchema.default("idle"),
-  outputLayerId: z.string().uuid().optional(), // Result layer UUID after execution
-  outputLayerProjectId: z.number().optional(), // Result layer project ID
+  outputLayerId: z.string().uuid().optional(), // Result layer UUID after execution (temporary, not added to project)
   jobId: z.string().optional(), // Windmill job ID during execution
   error: z.string().optional(), // Error message if status is "error"
 });

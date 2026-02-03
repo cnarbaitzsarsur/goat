@@ -62,6 +62,7 @@ export type JobType =
   | "layer_update"
   | "layer_delete"
   | "print_report"
+  | "workflow_runner"
   | "buffer"
   | "join"
   | "catchment_area_active_mobility"
@@ -103,6 +104,22 @@ export interface Job {
   project_id?: string;
   inputs?: Record<string, unknown>; // Job inputs (e.g., layout_id for PrintReport)
   result?: Record<string, unknown>; // Job result/output
+  // Workflow execution status
+  workflow_as_code_status?: {
+    running?: string[];
+    completed?: string[];
+    failed?: string[];
+  };
+  // Node status for workflow jobs (from flow_user_state)
+  node_status?: Record<
+    string,
+    | string // Legacy: just status string
+    | {
+        status: "pending" | "running" | "completed" | "failed";
+        started_at?: number; // Unix timestamp in seconds
+        duration_ms?: number; // Duration in milliseconds
+      }
+  >;
 }
 
 /**

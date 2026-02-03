@@ -21,7 +21,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from processes.config import settings
 from processes.ducklake import ducklake_manager
 from processes.models import HealthCheck
-from processes.routers import processes_router
+from processes.routers import processes_router, workflows_router
 from processes.services.windmill_client import windmill_client
 
 # Configure logging
@@ -98,6 +98,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Include routers
 app.include_router(processes_router)
+app.include_router(workflows_router)
 
 
 @app.get(

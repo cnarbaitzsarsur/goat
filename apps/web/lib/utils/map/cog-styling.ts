@@ -97,8 +97,8 @@ function generateColorRangeColorFunction(props: RasterStyleColorRangeProperties)
   return (pixel, color, metadata) => {
     let value = pixel[band];
 
-    // Handle no-data
-    if (value === null || value === undefined || value === metadata.noData) {
+    // Handle no-data (including NaN which doesn't equal itself in JS)
+    if (value === null || value === undefined || value === metadata.noData || Number.isNaN(value)) {
       color.set(noDataRgba as unknown as ArrayLike<number>);
       return;
     }
@@ -183,8 +183,8 @@ function generateCategoriesColorFunction(props: RasterStyleCategoriesProperties)
   return (pixel, color, metadata) => {
     let value = pixel[band];
 
-    // Handle no-data
-    if (value === null || value === undefined || value === metadata.noData) {
+    // Handle no-data (including NaN which doesn't equal itself in JS)
+    if (value === null || value === undefined || value === metadata.noData || Number.isNaN(value)) {
       color.set(noDataRgba as unknown as ArrayLike<number>);
       return;
     }
@@ -225,8 +225,13 @@ function generateHillshadeColorFunction(props: RasterStyleHillshadeProperties): 
   return (pixel, color, metadata) => {
     let elevation = pixel[band];
 
-    // Handle no-data
-    if (elevation === null || elevation === undefined || elevation === metadata.noData) {
+    // Handle no-data (including NaN which doesn't equal itself in JS)
+    if (
+      elevation === null ||
+      elevation === undefined ||
+      elevation === metadata.noData ||
+      Number.isNaN(elevation)
+    ) {
       color.set([0, 0, 0, 0]);
       return;
     }

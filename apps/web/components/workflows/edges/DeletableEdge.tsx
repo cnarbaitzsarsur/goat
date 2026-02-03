@@ -1,7 +1,7 @@
 "use client";
 
 import { Delete as DeleteIcon } from "@mui/icons-material";
-import { IconButton, Stack, Tooltip, useTheme } from "@mui/material";
+import { GlobalStyles, IconButton, Stack, Tooltip, useTheme } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps, getBezierPath, useViewport } from "@xyflow/react";
 import React, { memo, useCallback, useMemo } from "react";
@@ -10,6 +10,8 @@ import { useDispatch } from "react-redux";
 
 import type { AppDispatch } from "@/lib/store";
 import { removeEdges } from "@/lib/store/workflow/slice";
+
+import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext";
 
 // Styled to match node toolbar style (same as DatasetNode)
 const ToolbarContainer = styled(Stack)(({ theme }) => ({
@@ -31,8 +33,25 @@ const ToolbarButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
+// Global styles for animated edge - keyframes don't work in inline styles
+const AnimatedEdgeStyles = () => (
+  <GlobalStyles
+    styles={{
+      "@keyframes dashFlow": {
+        "0%": { strokeDashoffset: 24 },
+        "100%": { strokeDashoffset: 0 },
+      },
+      ".react-flow__edge-path.animated-running": {
+        animation: "dashFlow 0.5s linear infinite",
+      },
+    }}
+  />
+);
+
 const DeletableEdge: React.FC<EdgeProps> = ({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -48,6 +67,19 @@ const DeletableEdge: React.FC<EdgeProps> = ({
   const theme = useTheme();
   const { zoom } = useViewport();
 
+  // Get execution status from context
+  const { nodeStatuses } = useWorkflowExecutionContext();
+  const sourceStatus = nodeStatuses[source];
+  const targetStatus = nodeStatuses[target];
+
+  // Determine edge execution state
+  // Edge is running if target node is running (data flowing into it)
+  const isEdgeRunning = targetStatus === "running";
+  // Edge is completed if target is completed, or if source is completed and target is running
+  // For dataset->tool edges, source won't have status, so just check target
+  const isEdgeCompleted =
+    targetStatus === "completed" || (sourceStatus === "completed" && targetStatus === "completed");
+
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -57,14 +89,24 @@ const DeletableEdge: React.FC<EdgeProps> = ({
     targetPosition,
   });
 
-  // Merge style with selected color
+  // Merge style with selected color and execution state
   const edgeStyle = useMemo(
     () => ({
       ...style,
-      stroke: selected ? theme.palette.primary.main : style.stroke,
-      strokeWidth: selected ? 3 : (style.strokeWidth as number) || 2,
+      stroke: isEdgeCompleted
+        ? theme.palette.primary.main
+        : isEdgeRunning
+          ? theme.palette.warning.main
+          : selected
+            ? theme.palette.primary.main
+            : style.stroke,
+      strokeWidth: isEdgeRunning || isEdgeCompleted ? 3 : selected ? 3 : (style.strokeWidth as number) || 2,
+      // Add dashed pattern for running edges
+      ...(isEdgeRunning && {
+        strokeDasharray: "8 8",
+      }),
     }),
-    [style, selected, theme.palette.primary.main]
+    [style, selected, theme.palette.primary.main, theme.palette.warning.main, isEdgeRunning, isEdgeCompleted]
   );
 
   const handleDelete = useCallback(
@@ -78,7 +120,13 @@ const DeletableEdge: React.FC<EdgeProps> = ({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={edgeStyle} />
+      <AnimatedEdgeStyles />
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={edgeStyle}
+        className={isEdgeRunning ? "animated-running" : ""}
+      />
       {selected && (
         <EdgeLabelRenderer>
           <div

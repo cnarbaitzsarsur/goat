@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from goatlib.analysis.schemas.base import (
     FieldStatistic,
     GeometryType,
-    StatisticOperation,
 )
 from goatlib.analysis.schemas.ui import (
     SECTION_AREA,

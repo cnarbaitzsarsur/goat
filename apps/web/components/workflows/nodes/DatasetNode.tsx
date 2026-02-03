@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CheckCircle as CheckCircleIcon,
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
   FilterAlt as FilterIcon,
@@ -24,6 +25,8 @@ import type { Expression } from "@/lib/validations/filter";
 import type { DatasetNodeData } from "@/lib/validations/workflow";
 
 import useLayerFields from "@/hooks/map/CommonHooks";
+
+import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext";
 
 const NodeContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== "selected",
@@ -54,7 +57,10 @@ const NodeHeader = styled(Box)(({ theme }) => ({
   marginBottom: theme.spacing(0.5),
 }));
 
-const NodeIconWrapper = styled(Box)(({ theme }) => ({
+// Icon wrapper with status-based styling
+const NodeIconWrapper = styled(Box, {
+  shouldForwardProp: (prop) => prop !== "isCompleted",
+})<{ isCompleted?: boolean }>(({ theme, isCompleted }) => ({
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -62,8 +68,26 @@ const NodeIconWrapper = styled(Box)(({ theme }) => ({
   height: 40,
   minWidth: 40,
   borderRadius: theme.shape.borderRadius,
-  border: `1px solid ${theme.palette.divider}`,
-  backgroundColor: theme.palette.background.default,
+  border: `1px solid ${isCompleted ? theme.palette.primary.main : theme.palette.divider}`,
+  backgroundColor: isCompleted ? theme.palette.primary.main + "20" : theme.palette.background.default,
+  position: "relative",
+}));
+
+// Small badge on icon corner
+const IconStatusBadge = styled(Box)(({ theme }) => ({
+  position: "absolute",
+  top: -6,
+  right: -6,
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  backgroundColor: theme.palette.primary.main,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: theme.palette.common.white,
+  zIndex: 2,
+  border: `2px solid ${theme.palette.background.paper}`,
 }));
 
 const StyledHandle = styled(Handle, {
@@ -109,6 +133,10 @@ const DatasetNode: React.FC<DatasetNodeProps> = ({ id, data, selected }) => {
   const { t } = useTranslation("common");
   const dispatch = useDispatch<AppDispatch>();
   const nodes = useSelector(selectNodes);
+
+  // Get execution status - dataset nodes are "completed" when any connected tool is running or completed
+  const { nodeStatuses } = useWorkflowExecutionContext();
+  const hasAnyExecution = Object.keys(nodeStatuses).length > 0;
 
   // Get layer fields for CQL generation
   const { layerFields } = useLayerFields(data.layerId || "", undefined);
@@ -222,8 +250,17 @@ const DatasetNode: React.FC<DatasetNodeProps> = ({ id, data, selected }) => {
         <StyledHandle type="source" position={Position.Right} selected={selected} />
 
         <NodeHeader>
-          <NodeIconWrapper>
-            <Icon iconName={getGeometryIcon()} sx={{ fontSize: 20, color: "text.secondary" }} />
+          <NodeIconWrapper isCompleted={hasAnyExecution}>
+            <Icon
+              iconName={getGeometryIcon()}
+              sx={{ fontSize: 20, color: hasAnyExecution ? "primary.main" : "text.secondary" }}
+            />
+            {/* Checkmark badge on icon */}
+            {hasAnyExecution && (
+              <IconStatusBadge>
+                <CheckCircleIcon sx={{ fontSize: 12 }} />
+              </IconStatusBadge>
+            )}
           </NodeIconWrapper>
           <Typography variant="body2" fontWeight="bold" sx={{ wordBreak: "break-word" }}>
             {data.layerId ? data.label : t("no_dataset")}

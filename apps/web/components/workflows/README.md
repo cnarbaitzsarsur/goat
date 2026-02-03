@@ -1,8 +1,8 @@
 # Workflows Feature - Implementation Guide
 
-> **Status**: Planning Complete  
-> **Last Updated**: January 25, 2026  
-> **Related Features**: Layouts, GenericTool/Toolbox
+> **Status**: Phase 5 - Execution Engine (In Progress)  
+> **Last Updated**: February 2, 2026  
+> **Related Features**: Layouts, GenericTool/Toolbox, Windmill
 
 ## Table of Contents
 
@@ -50,7 +50,7 @@ Workflows allow users to chain multiple tools (processes) together in a visual D
 │  ┌─────────────┐    ┌─────────────────────────────┐    ┌─────────────────┐  │
 │  │   Config    │    │      ReactFlow Canvas       │    │     Nodes       │  │
 │  │   Panel     │    │                             │    │     Panel       │  │
-│  │             │    │  [Dataset] ──▶ [Tool] ──▶ [Output]                 │  │
+│  │             │    │  [Dataset] ──▶ [Tool] ──▶ [Tool]                   │  │
 │  │ • Workflows │    │                             │    │ • Import        │  │
 │  │ • Layers    │    │                             │    │ • Accessibility │  │
 │  │   (view)    │    │                             │    │ • Geoanalysis   │  │
@@ -59,23 +59,41 @@ Workflows allow users to chain multiple tools (processes) together in a visual D
                                       │
                                       ▼ (on Run)
                               ┌───────────────┐
-                              │ Processes API │
-                              │  (Sequential) │
+                              │   Core API    │
+                              │ /execute      │
                               └───────────────┘
                                       │
                                       ▼
                               ┌───────────────┐
                               │   Windmill    │
-                              │   (per node)  │
+                              │ workflow_runner│
+                              │ (@task per node)│
+                              └───────────────┘
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │   Poll Status │
+                              │ (every 2 sec) │
                               └───────────────┘
 ```
 
-### Why Application-Level Workflows (Not Windmill Flows)
+### Why Windmill "Workflows as Code"
 
-1. **Full UI Control**: Custom ReactFlow editor with project-specific features
-2. **Data Consistency**: Workflows stored in PostgreSQL alongside projects/layouts
-3. **Existing Infrastructure**: Reuse Processes API for individual tool execution
-4. **Flexibility**: Can migrate to Windmill Flows later if needed
+1. **Browser-Independent**: Users can close browser, workflow continues running
+2. **Single Source of Truth**: Windmill stores all job state (no duplicate in our DB)
+3. **Real-Time Progress**: `workflow_as_code_status` shows which node is running
+4. **Existing Infrastructure**: Reuse same tools, same job polling, same UI patterns
+5. **Per-Step Tracking**: Each `@task` is a tracked sub-job in Windmill
+
+### Key Components
+
+| Component       | Location                             | Purpose                                       |
+| --------------- | ------------------------------------ | --------------------------------------------- |
+| Workflow Editor | `apps/web/components/workflows/`     | ReactFlow-based visual editor                 |
+| Workflow API    | `apps/core/endpoints/v2/workflow.py` | CRUD + execute endpoint                       |
+| Workflow Runner | `goatlib/tools/workflow_runner.py`   | Windmill script that orchestrates execution   |
+| Job Polling     | `apps/web/hooks/jobs/JobStatus.tsx`  | Existing pattern for tracking running jobs    |
+| Processes API   | `apps/processes/`                    | Proxies to Windmill for job submission/status |
 
 ---
 
@@ -85,17 +103,17 @@ Workflows allow users to chain multiple tools (processes) together in a visual D
 
 **Table: `customer.workflow`**
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | UUID | Primary key |
-| `project_id` | UUID | FK to `project.id` (CASCADE delete) |
-| `name` | TEXT | Workflow name |
-| `description` | TEXT | Optional description |
-| `is_default` | BOOLEAN | Default workflow for project |
-| `config` | JSONB | ReactFlow nodes, edges, viewport |
-| `thumbnail_url` | TEXT | Preview image URL |
-| `created_at` | TIMESTAMPTZ | Creation timestamp |
-| `updated_at` | TIMESTAMPTZ | Last update timestamp |
+| Column          | Type        | Description                         |
+| --------------- | ----------- | ----------------------------------- |
+| `id`            | UUID        | Primary key                         |
+| `project_id`    | UUID        | FK to `project.id` (CASCADE delete) |
+| `name`          | TEXT        | Workflow name                       |
+| `description`   | TEXT        | Optional description                |
+| `is_default`    | BOOLEAN     | Default workflow for project        |
+| `config`        | JSONB       | ReactFlow nodes, edges, viewport    |
+| `thumbnail_url` | TEXT        | Preview image URL                   |
+| `created_at`    | TIMESTAMPTZ | Creation timestamp                  |
+| `updated_at`    | TIMESTAMPTZ | Last update timestamp               |
 
 **Pydantic Schemas** (`apps/core/src/core/schemas/workflow.py`):
 
@@ -139,15 +157,14 @@ export const nodeStatusSchema = z.enum([
   "error",
 ]);
 
-// Dataset node - references a project layer
+// Dataset node - references a layer by UUID
 export const datasetNodeDataSchema = z.object({
   type: z.literal("dataset"),
   label: z.string(),
-  layerProjectId: z.number().optional(),  // Project layer ID
-  layerId: z.string().optional(),          // UUID for execution
+  layerId: z.string().uuid().optional(),    // Layer UUID (from project, explorer, or catalog)
   layerName: z.string().optional(),
   geometryType: z.string().optional(),
-  filter: z.record(z.unknown()).optional(), // CQL filter
+  filter: z.record(z.unknown()).optional(), // Workflow filter (independent from layer's CQL)
 });
 
 // Tool node - represents a process
@@ -157,8 +174,7 @@ export const toolNodeDataSchema = z.object({
   label: z.string(),
   config: z.record(z.unknown()),            // Tool parameters (excluding layer inputs)
   status: nodeStatusSchema.optional(),
-  outputLayerId: z.string().optional(),     // Result layer UUID after execution
-  outputLayerProjectId: z.number().optional(),
+  outputLayerId: z.string().uuid().optional(),  // Result layer UUID after execution (temporary, not added to project)
   jobId: z.string().optional(),             // Windmill job ID during execution
   error: z.string().optional(),
 });
@@ -270,16 +286,16 @@ Based on mockups, the workflow editor has three panels:
 
 **Toolbar** (top of canvas):
 
-| Icon | Action | Description |
-|------|--------|-------------|
-| 🗑 | Delete | Delete selected node(s) |
-| 📋 | Duplicate | Duplicate selected node(s) |
-| 🔍 | Filter | Open filter panel for selected dataset node |
-| ⊞ | Auto-layout | Arrange nodes automatically |
-| ☁ | Save | Manual save (auto-save enabled) |
-| ⬇ | Export | Export workflow as JSON |
-| ▶ RUN NODE | Execute | Run only the selected node |
-| ▶▶ RUN TO HERE | Execute | Run from start up to selected node |
+| Icon           | Action      | Description                                 |
+| -------------- | ----------- | ------------------------------------------- |
+| 🗑              | Delete      | Delete selected node(s)                     |
+| 📋              | Duplicate   | Duplicate selected node(s)                  |
+| 🔍              | Filter      | Open filter panel for selected dataset node |
+| ⊞              | Auto-layout | Arrange nodes automatically                 |
+| ☁              | Save        | Manual save (auto-save enabled)             |
+| ⬇              | Export      | Export workflow as JSON                     |
+| ▶ RUN NODE     | Execute     | Run only the selected node                  |
+| ▶▶ RUN TO HERE | Execute     | Run from start up to selected node          |
 
 **Canvas Features:**
 
@@ -408,130 +424,387 @@ When a node is selected, the right panel transforms:
 
 ---
 
-## Execution Logic
+## Execution Architecture
 
-### Execution Modes
+> **Updated**: February 2, 2026
 
-1. **Run Node**: Execute only the selected node
-   - Requires all upstream nodes to have completed outputs
-   - If upstream outputs missing, show error
+### Design Principles
 
-2. **Run to Here**: Execute from first node up to selected node
-   - Topological sort of all nodes leading to selected
-   - Sequential execution via Processes API
+1. **Browser-Independent Execution**: Users may close their browser during long-running workflows (even a single buffer on large datasets can take minutes)
+2. **No Duplicate State**: Use Windmill as the single source of truth for job status
+3. **Real-Time Progress**: Show which node is currently running via polling
+4. **Temporary Results**: Tool outputs are temporary until explicitly saved
 
-### Execution Algorithm
+### Architecture Overview
 
-```typescript
-async function runToHere(
-  workflow: Workflow,
-  targetNodeId: string,
-  projectId: string
-): Promise<void> {
-  const { nodes, edges } = workflow.config;
-  
-  // 1. Build dependency graph
-  const graph = buildDependencyGraph(nodes, edges);
-  
-  // 2. Find all nodes that lead to target (including target)
-  const nodesToRun = getUpstreamNodes(graph, targetNodeId);
-  
-  // 3. Topological sort
-  const sortedNodes = topologicalSort(nodesToRun, edges);
-  
-  // 4. Filter out already-completed nodes with valid outputs
-  const pendingNodes = sortedNodes.filter(node => {
-    if (node.data.type === "dataset") {
-      return !node.data.layerId;  // No layer selected
-    }
-    return !node.data.outputLayerId;  // No output yet
-  });
-  
-  // 5. Execute sequentially
-  for (const node of pendingNodes) {
-    await executeNode(node, workflow, projectId);
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         USER CLICKS "RUN"                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Frontend:                                                                  │
+│  1. POST /api/v2/projects/{id}/workflows/{id}/execute                      │
+│  2. Receive { job_id: "xxx" }                                              │
+│  3. Poll GET /jobs/{job_id} every 2 seconds (same as existing tools)       │
+│  4. Update node statuses based on workflow_as_code_status                   │
+│  5. On completion, extract per-node results                                 │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Backend (Core API):                                                        │
+│  1. Receive workflow execution request                                      │
+│  2. Load workflow config (nodes, edges)                                     │
+│  3. Delete old temporary layers (cleanup previous run)                      │
+│  4. Submit workflow_runner script to Windmill                               │
+│  5. Return { job_id } to frontend                                           │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Windmill (workflow_runner script):                                         │
+│  1. Receive { nodes, edges, user_id, project_id, workflow_id }             │
+│  2. Topologically sort nodes                                                │
+│  3. For each tool node, run as @task (tracked by Windmill)                  │
+│  4. Pass results between nodes (outputLayerId → next input)                 │
+│  5. Return all node results on completion                                   │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  User Closes Browser, Returns Later:                                        │
+│  1. Load workflow page                                                      │
+│  2. Query Windmill for jobs with args.workflow_id = this workflow           │
+│  3. If running job exists, resume polling                                   │
+│  4. If completed, populate node statuses from job results                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-async function executeNode(
-  node: WorkflowNode,
-  workflow: Workflow,
-  projectId: string
-): Promise<void> {
-  if (node.data.type === "dataset") {
-    // Dataset nodes don't need execution, just validation
-    if (!node.data.layerId) {
-      throw new Error(`Dataset node "${node.data.label}" has no layer selected`);
-    }
-    return;
-  }
-  
-  // Tool node
-  const { edges } = workflow.config;
-  
-  // 1. Update status to "running"
-  updateNodeStatus(node.id, "running");
-  
-  // 2. Gather input layer IDs from connected nodes
-  const inputEdges = edges.filter(e => e.target === node.id);
-  const inputs: Record<string, string> = {};
-  
-  for (const edge of inputEdges) {
-    const sourceNode = workflow.config.nodes.find(n => n.id === edge.source);
-    const layerId = sourceNode?.data.type === "dataset" 
-      ? sourceNode.data.layerId 
-      : sourceNode?.data.outputLayerId;
+### Windmill "Workflows as Code" Approach
+
+Instead of OpenFlow JSON, we use a **single Python script with `@task` decorators**. Each `@task` becomes a tracked sub-job that Windmill monitors.
+
+**File: `packages/python/goatlib/src/goatlib/tools/workflow_runner.py`**
+
+```python
+from wmill import task
+import wmill
+
+@task()
+def run_tool(node_id: str, process_id: str, inputs: dict) -> dict:
+    """Run a single tool and return its result with node_id."""
+    result = wmill.run_script(f"f/goat/tools/{process_id}", args=inputs)
+    return {"node_id": node_id, **result}
+
+
+def topological_sort(nodes: list, edges: list) -> list:
+    """Return nodes in execution order (datasets first, then tools by dependency)."""
+    # ... implementation ...
+    pass
+
+
+def build_inputs(node: dict, edges: list, all_nodes: list, results: dict) -> dict:
+    """Build input dict for a tool node from its config and predecessor outputs."""
+    inputs = {**node["data"]["config"]}
     
-    if (!layerId) {
-      throw new Error(`Missing input from node "${sourceNode?.data.label}"`);
-    }
+    for edge in edges:
+        if edge["target"] != node["id"]:
+            continue
+        
+        source_node = next(n for n in all_nodes if n["id"] == edge["source"])
+        target_handle = edge.get("targetHandle", "input_layer_id")
+        
+        if source_node["data"]["type"] == "dataset":
+            # Direct layer reference
+            inputs[target_handle] = source_node["data"]["layerId"]
+            # Include filter if present
+            if source_node["data"].get("filter"):
+                filter_key = target_handle.replace("_id", "_filter")
+                inputs[filter_key] = source_node["data"]["filter"]
+        else:
+            # Reference previous tool's output
+            prev_result = results.get(source_node["id"])
+            if prev_result:
+                inputs[target_handle] = prev_result["layer_id"]
     
-    const handleName = edge.targetHandle || "input_layer_id";
-    inputs[handleName] = layerId;
+    return inputs
+
+
+def main(
+    user_id: str,
+    project_id: str,
+    workflow_id: str,
+    folder_id: str,
+    nodes: list[dict],
+    edges: list[dict],
+) -> dict:
+    """Execute a workflow: run all tool nodes in topological order."""
     
-    // Also include filter if present
-    if (sourceNode?.data.type === "dataset" && sourceNode.data.filter) {
-      inputs[`${handleName.replace("_id", "")}_filter`] = sourceNode.data.filter;
-    }
-  }
-  
-  // 3. Build execution payload
-  const payload = {
-    ...node.data.config,
-    ...inputs,
-    user_id: currentUserId,
-    project_id: projectId,
-    folder_id: workflowsFolderId,  // Special folder for workflow outputs
-    result_layer_name: `${node.data.label} (${workflow.name})`,
-  };
-  
-  // 4. Execute via Processes API
-  try {
-    const jobId = await executeProcess(node.data.processId, payload);
-    updateNodeJobId(node.id, jobId);
+    # Sort nodes by dependency
+    sorted_nodes = topological_sort(nodes, edges)
     
-    // 5. Poll for completion
-    const result = await waitForJob(jobId);
+    # Track results per node
+    results = {}
     
-    // 6. Update node with result
-    updateNodeOutput(node.id, {
-      status: "completed",
-      outputLayerId: result.layer_id,
-      outputLayerProjectId: result.layer_project_id,
-    });
-  } catch (error) {
-    updateNodeStatus(node.id, "error", error.message);
-    throw error;
+    # Execute each tool node
+    for node in sorted_nodes:
+        if node["data"]["type"] != "tool":
+            continue
+        
+        # Build inputs from config + predecessor outputs
+        inputs = build_inputs(node, edges, nodes, results)
+        inputs["user_id"] = user_id
+        inputs["project_id"] = project_id
+        inputs["folder_id"] = folder_id
+        inputs["temporary"] = True  # Don't add to project layer list
+        inputs["result_layer_name"] = node["data"].get("label", "Workflow Result")
+        
+        # Run as @task - Windmill tracks this as a sub-job
+        result = run_tool(
+            node_id=node["id"],
+            process_id=node["data"]["processId"],
+            inputs=inputs
+        )
+        
+        results[node["id"]] = result
+    
+    return results
+```
+
+### Real-Time Progress Tracking
+
+Windmill provides `workflow_as_code_status` in job responses:
+
+```json
+{
+  "jobID": "abc-123",
+  "status": "running",
+  "workflow_as_code_status": {
+    "scheduled": ["run_tool_node1", "run_tool_node2"],
+    "running": ["run_tool_node1"],
+    "completed": []
   }
 }
 ```
 
+**Frontend polling** (every 2 seconds, same as existing tools):
+
+```typescript
+// Use existing useJobStatus pattern
+const { jobs } = useJobs({ read: false });
+
+// Extract workflow_as_code_status for the current workflow job
+const workflowJob = jobs?.find(j => j.args?.workflow_id === workflowId);
+if (workflowJob?.workflow_as_code_status) {
+  const { running, completed } = workflowJob.workflow_as_code_status;
+  
+  // Update node statuses in UI
+  nodes.forEach(node => {
+    if (completed.includes(`run_tool_${node.id}`)) {
+      updateNodeStatus(node.id, "completed");
+    } else if (running.includes(`run_tool_${node.id}`)) {
+      updateNodeStatus(node.id, "running");
+    }
+  });
+}
+```
+
+### Temporary Layers & Save Behavior
+
+**Problem**: Currently, all tool outputs are automatically added to the project's layer list.
+
+**Solution**: Add `temporary` flag to tool execution.
+
+**Backend Changes**:
+
+1. **`goatlib/tools/schemas.py`** - Add `temporary` field:
+   ```python
+   class ToolInputBase(BaseModel):
+       # ... existing fields ...
+       temporary: bool = Field(
+           default=False,
+           description="If True, result layer is temporary (not added to project layer list)"
+       )
+   ```
+
+2. **`goatlib/tools/base.py`** - Skip `add_to_project()` when temporary:
+   ```python
+   async def _create_db_records(self, ...):
+       # ... create layer metadata (always needed to view results) ...
+       
+       # Only add to project if NOT temporary
+       layer_project_id = None
+       if params.project_id and not getattr(params, 'temporary', False):
+           layer_project_id = await self.db_service.add_to_project(...)
+       
+       return {"folder_id": folder_id, "layer_project_id": layer_project_id}
+   ```
+
+3. **`customer.layer`** table - Add `is_temporary` column:
+   ```sql
+   ALTER TABLE customer.layer ADD COLUMN is_temporary BOOLEAN DEFAULT FALSE;
+   ```
+
+4. **Finalize endpoint** - Convert temporary to permanent:
+   ```
+   POST /api/v2/layers/{layer_id}/finalize?project_id={project_id}
+   ```
+   - Sets `is_temporary = false`
+   - Calls `add_to_project()` to add to layer list
+   - Returns `layer_project_id`
+
+**Frontend "Save" Button**:
+
+When user clicks "Save" on a completed tool node:
+```typescript
+async function saveNodeResult(node: WorkflowNode, projectId: string) {
+  if (node.data.outputLayerId) {
+    await finalizeLayer(node.data.outputLayerId, projectId);
+    // Refresh project layers
+    mutateProjectLayers();
+  }
+}
+```
+
+### Cleanup Strategy
+
+**When to delete old temporary layers:**
+
+1. **On new workflow run**: Delete all temporary layers from the previous run of this workflow
+2. **Scheduled cleanup** (optional): Background job to delete temp layers older than 24 hours
+
+**Implementation**:
+
+```python
+# In workflow execute endpoint
+async def execute_workflow(workflow_id: str, user_id: str, ...):
+    # Query Windmill for previous completed jobs of this workflow
+    previous_jobs = await windmill_client.list_jobs_filtered(
+        user_id=user_id,
+        script_path_start="f/goat/workflow_runner",
+        success=True,
+    )
+    
+    # Find jobs for this specific workflow
+    for job in previous_jobs:
+        if job.get("args", {}).get("workflow_id") == workflow_id:
+            # Delete temporary layers from previous run
+            for node_id, result in job.get("result", {}).items():
+                layer_id = result.get("layer_id")
+                if layer_id:
+                    await delete_temporary_layer(layer_id)
+    
+    # Submit new execution
+    job_id = await windmill_client.run_script_async(...)
+    return {"job_id": job_id}
+```
+
+### Handling Disconnected Subgraphs
+
+Workflows can have multiple disconnected chains:
+
+```
+Subgraph 1: [Dataset A] → [Buffer]
+Subgraph 2: [Dataset B] → [Join] → [Join]
+                         ↑
+              [Dataset C] ┘        ↑
+              [Dataset D] ─────────┘
+```
+
+**Solution**: Execute all as a single Windmill job, sequential order.
+
+The topological sort handles disconnected components by processing them in order. Windmill's "Workflows as Code" doesn't require connections between tasks.
+
+### Database Changes
+
+**Minimal changes required:**
+
+| Table            | Change                    | Description                      |
+| ---------------- | ------------------------- | -------------------------------- |
+| `customer.layer` | Add `is_temporary` column | Track temporary workflow results |
+
+**No changes needed to `customer.workflow`** - Windmill stores all job state!
+
+### Querying Workflow Jobs
+
+```python
+# List all workflow jobs for a user
+async def list_workflow_jobs(user_id: str):
+    return await windmill_client.list_jobs_filtered(
+        user_id=user_id,
+        script_path_start="f/goat/workflow_runner",
+    )
+
+# List jobs for a specific workflow
+async def list_jobs_for_workflow(user_id: str, workflow_id: str):
+    jobs = await windmill_client.list_jobs_filtered(
+        user_id=user_id,
+        script_path_start="f/goat/workflow_runner",
+    )
+    return [j for j in jobs if j.get("args", {}).get("workflow_id") == workflow_id]
+
+# Get latest job for a workflow
+async def get_latest_workflow_job(user_id: str, workflow_id: str):
+    jobs = await list_jobs_for_workflow(user_id, workflow_id)
+    return jobs[0] if jobs else None  # Jobs are ordered by created_at DESC
+```
+
+### "Save to Project" Node (Future)
+
+In the future, "Save" will be a node type:
+
+```
+[Dataset] → [Buffer] → [Save to Project]
+```
+
+**Implementation**: Create a Windmill script `f/goat/save_to_project`:
+
+```python
+def main(layer_id: str, project_id: str, user_id: str, layer_name: str | None = None):
+    """Finalize a temporary layer and add to project."""
+    # 1. Update layer: is_temporary = false
+    # 2. Call add_to_project()
+    # 3. Return layer_project_id
+```
+
+This can be called like any other tool in the workflow runner.
+
+### Summary
+
+| Component               | Location                           | Purpose                                       |
+| ----------------------- | ---------------------------------- | --------------------------------------------- |
+| **Workflow Runner**     | `goatlib/tools/workflow_runner.py` | Orchestrates workflow execution in Windmill   |
+| **Temporary Flag**      | `goatlib/tools/schemas.py`         | `temporary: bool` field on `ToolInputBase`    |
+| **Skip Add to Project** | `goatlib/tools/base.py`            | Don't add to layer list when `temporary=True` |
+| **Finalize Endpoint**   | `core/endpoints/v2/layer.py`       | `POST /layers/{id}/finalize`                  |
+| **Frontend Polling**    | `hooks/jobs/JobStatus.tsx`         | Existing pattern, extend for workflows        |
+| **Node Status Updates** | `components/workflows/`            | Read `workflow_as_code_status` from job       |
+
+### Migration Notes
+
+This architecture is designed for incremental implementation:
+
+1. **Phase 1**: Add `temporary` flag + skip `add_to_project()` in BaseToolRunner
+2. **Phase 2**: Create `workflow_runner.py` and sync to Windmill
+3. **Phase 3**: Create execute endpoint in Core API
+4. **Phase 4**: Frontend polling and node status updates
+5. **Phase 5**: Finalize endpoint and "Save" button
+6. **Phase 6**: Cleanup of old temporary layers
+
+---
+
+## Execution Modes (Simplified)
+
+For MVP, we support a single "Run Workflow" button that executes all tool nodes.
+
+Future enhancements:
+- **Run Node**: Execute only selected node (requires upstream to be complete)
+- **Run to Here**: Execute from start up to selected node
+
 ### Output Layer Management
 
-- **Folder**: Create a "Workflows" system folder in the project
-- **Naming**: `{NodeLabel} ({WorkflowName})`
-- **Re-run Behavior**: Delete previous output layer, create new one
-- **Intermediate Layers**: Kept unless workflow is re-run from that point
+- **Temporary by default**: All workflow results are temporary (not in layer list)
+- **Explicit Save**: User clicks "Save" to add a result to the project
+- **Cleanup on Re-run**: Previous temporary results deleted when workflow runs again
+- **Naming**: `{NodeLabel}` (workflow name visible in layer metadata)
 
 ---
 
@@ -541,14 +814,14 @@ async function executeNode(
 
 **Base URL**: `/api/v2/projects/{project_id}/workflow`
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | List all workflows for project |
-| GET | `/{workflow_id}` | Get specific workflow |
-| POST | `/` | Create workflow |
-| PUT | `/{workflow_id}` | Update workflow |
-| DELETE | `/{workflow_id}` | Delete workflow |
-| POST | `/{workflow_id}/duplicate` | Duplicate workflow |
+| Method | Endpoint                   | Description                    |
+| ------ | -------------------------- | ------------------------------ |
+| GET    | `/`                        | List all workflows for project |
+| GET    | `/{workflow_id}`           | Get specific workflow          |
+| POST   | `/`                        | Create workflow                |
+| PUT    | `/{workflow_id}`           | Update workflow                |
+| DELETE | `/{workflow_id}`           | Delete workflow                |
+| POST   | `/{workflow_id}/duplicate` | Duplicate workflow             |
 
 ### Frontend API Hooks
 
@@ -570,63 +843,73 @@ export const duplicateWorkflow = async (projectId: string, workflowId: string, n
 
 ## Implementation Phases
 
-### Phase 1: Data Layer (Backend + Types) - 1 week
+### Phase 1: Data Layer (Backend + Types) - 1 week ✅ DONE
 
-- [ ] Create `Workflow` SQLAlchemy model (`apps/core/src/core/db/models/workflow.py`)
-- [ ] Create Alembic migration
-- [ ] Create Pydantic schemas (`apps/core/src/core/schemas/workflow.py`)
-- [ ] Create CRUD class (`apps/core/src/core/crud/crud_workflow.py`)
-- [ ] Create API endpoints (`apps/core/src/core/endpoints/v2/workflow.py`)
-- [ ] Register routes in `apps/core/src/core/endpoints/v2/router.py`
-- [ ] Create Zod validations (`apps/web/lib/validations/workflow.ts`)
-- [ ] Create API hooks (`apps/web/lib/api/workflows.ts`)
+- [x] Create `Workflow` SQLAlchemy model (`apps/core/src/core/db/models/workflow.py`)
+- [x] Create Alembic migration
+- [x] Create Pydantic schemas (`apps/core/src/core/schemas/workflow.py`)
+- [x] Create CRUD class (`apps/core/src/core/crud/crud_workflow.py`)
+- [x] Create API endpoints (`apps/core/src/core/endpoints/v2/workflow.py`)
+- [x] Register routes in `apps/core/src/core/endpoints/v2/router.py`
+- [x] Create Zod validations (`apps/web/lib/validations/workflow.ts`)
+- [x] Create API hooks (`apps/web/lib/api/workflows.ts`)
 
-### Phase 2: UI Shell - 1 week
+### Phase 2: UI Shell - 1 week ✅ DONE
 
-- [ ] Add "Workflows" to header toggle (`apps/web/components/header/Header.tsx`)
-- [ ] Create `WorkflowsLayout.tsx` main component
-- [ ] Create `WorkflowsConfigPanel.tsx` (left panel - workflow list + layers)
-- [ ] Create `WorkflowsNodesPanel.tsx` (right panel - tool blocks)
-- [ ] Wire up mode switch in `apps/web/app/map/[projectId]/page.tsx`
+- [x] Add "Workflows" to header toggle (`apps/web/components/header/Header.tsx`)
+- [x] Create `WorkflowsLayout.tsx` main component
+- [x] Create `WorkflowsConfigPanel.tsx` (left panel - workflow list + layers)
+- [x] Create `WorkflowsNodesPanel.tsx` (right panel - tool blocks)
+- [x] Wire up mode switch in `apps/web/app/map/[projectId]/page.tsx`
 
-### Phase 3: ReactFlow Canvas - 2 weeks
+### Phase 3: ReactFlow Canvas - 2 weeks ✅ DONE
 
-- [ ] Create `WorkflowCanvas.tsx` with ReactFlow setup
-- [ ] Create `DatasetNode.tsx` custom node component
-- [ ] Create `ToolNode.tsx` custom node component
-- [ ] Implement edge connection logic with validation
-- [ ] Implement node drag-and-drop from palette
-- [ ] Create canvas toolbar (delete, duplicate, auto-layout)
-- [ ] Implement auto-save on config changes
+- [x] Create `WorkflowCanvas.tsx` with ReactFlow setup
+- [x] Create `DatasetNode.tsx` custom node component
+- [x] Create `ToolNode.tsx` custom node component
+- [x] Implement edge connection logic with validation
+- [x] Implement node drag-and-drop from palette
+- [x] Create canvas toolbar (delete, duplicate, auto-layout)
+- [x] Implement auto-save on config changes
 
-### Phase 4: Node Configuration - 2 weeks
+### Phase 4: Node Configuration - 2 weeks ✅ DONE
 
-- [ ] Create `DatasetNodeConfig.tsx` (layer selector + filter)
-- [ ] Create `ToolNodeConfig.tsx` (reuse OGC process form rendering)
-- [ ] Integrate with existing `ProcessedInputField.tsx` components
-- [ ] Handle geometry type constraints for connections
-- [ ] Show parameter summary on collapsed tool nodes
+- [x] Create `DatasetNodeSettings.tsx` (layer selector + filter)
+- [x] Create `ToolNodeSettings.tsx` (reuse OGC process form rendering)
+- [x] Integrate with existing `ProcessedInputField.tsx` components
+- [x] Handle geometry type constraints for connections
+- [x] Show parameter summary on collapsed tool nodes
 
-### Phase 5: Execution Engine - 2 weeks
+### Phase 5: Execution Engine - 2 weeks 🔄 IN PROGRESS
 
-- [ ] Implement topological sort algorithm
+**Backend Changes:**
+
+- [ ] Add `temporary` field to `ToolInputBase` in `goatlib/tools/schemas.py`
+- [ ] Modify `BaseToolRunner._create_db_records()` to skip `add_to_project()` when `temporary=True`
+- [ ] Add `is_temporary` column to `customer.layer` table (Alembic migration)
+- [ ] Create `workflow_runner.py` in `goatlib/tools/`
+- [ ] Sync `workflow_runner` to Windmill via `sync-tools.sh`
+- [ ] Add execute endpoint: `POST /projects/{id}/workflows/{id}/execute`
+- [ ] Add finalize endpoint: `POST /layers/{id}/finalize`
+
+**Frontend Changes:**
+
 - [ ] Create `useWorkflowExecution` hook
-- [ ] Implement "Run Node" functionality
-- [ ] Implement "Run to Here" functionality
-- [ ] Add status indicators on nodes (idle/running/completed/error)
-- [ ] Create "Workflows" folder for output layers
-- [ ] Handle re-run behavior (replace outputs)
-- [ ] Add execution history tab
+- [ ] Add "Run Workflow" button to toolbar
+- [ ] Extend job polling to read `workflow_as_code_status`
+- [ ] Update node statuses based on running/completed tasks
+- [ ] Add "Save" button to tool node details panel
+- [ ] Handle job completion and populate `outputLayerId` on nodes
 
 ### Phase 6: Polish - 1 week
 
-- [ ] Add i18n translations
+- [ ] Add i18n translations for workflow execution states
 - [ ] Add keyboard shortcuts
 - [ ] Add undo/redo support
 - [ ] Add copy/paste nodes
 - [ ] Add minimap
-- [ ] Add "Show table" / "Show map" toggle
 - [ ] Performance optimization
+- [ ] Cleanup strategy for old temporary layers
 
 ---
 
@@ -636,25 +919,23 @@ export const duplicateWorkflow = async (projectId: string, workflowId: string, n
 apps/web/components/workflows/
 ├── README.md                          # This file
 ├── WorkflowsLayout.tsx                # Main container
+├── index.ts                           # Exports
 ├── panels/
 │   ├── WorkflowsConfigPanel.tsx       # Left: workflow list + layers
-│   └── WorkflowsNodesPanel.tsx        # Right: tool blocks palette
+│   ├── WorkflowsNodesPanel.tsx        # Right: tool blocks palette
+│   ├── DatasetNodeSettings.tsx        # Dataset configuration panel
+│   ├── ToolNodeSettings.tsx           # Tool configuration panel
+│   └── WorkflowDataPanel.tsx          # Bottom: table/map view
 ├── canvas/
 │   ├── WorkflowCanvas.tsx             # ReactFlow canvas wrapper
-│   ├── WorkflowToolbar.tsx            # Canvas toolbar
-│   └── nodes/
-│       ├── DatasetNode.tsx            # Dataset/layer node
-│       ├── ToolNode.tsx               # Tool/process node
-│       └── nodeTypes.ts               # Node type registry
-├── config/
-│   ├── DatasetNodeConfig.tsx          # Dataset configuration panel
-│   ├── ToolNodeConfig.tsx             # Tool configuration panel
-│   └── NodeConfigPanel.tsx            # Config panel wrapper
-├── execution/
-│   ├── useWorkflowExecution.ts        # Execution hook
-│   ├── executionUtils.ts              # Topological sort, etc.
-│   └── ExecutionHistory.tsx           # History tab content
-└── constants.ts                       # Block categories, defaults
+│   └── WorkflowToolbar.tsx            # Canvas toolbar
+├── nodes/
+│   ├── DatasetNode.tsx                # Dataset/layer node
+│   ├── ToolNode.tsx                   # Tool/process node
+│   ├── TextAnnotationNode.tsx         # Text annotation node
+│   └── index.ts                       # Node type registry
+└── edges/
+    └── index.ts                       # Edge type registry
 ```
 
 ```
@@ -662,13 +943,24 @@ apps/core/src/core/
 ├── db/models/workflow.py              # SQLAlchemy model
 ├── schemas/workflow.py                # Pydantic schemas
 ├── crud/crud_workflow.py              # CRUD operations
-└── endpoints/v2/workflow.py           # API routes
+└── endpoints/v2/workflow.py           # API routes (CRUD + execute)
 ```
 
 ```
 apps/web/lib/
 ├── validations/workflow.ts            # Zod schemas
-└── api/workflows.ts                   # API hooks
+├── api/workflows.ts                   # API hooks
+└── store/workflow/
+    ├── slice.ts                       # Redux slice for workflow state
+    └── selectors.ts                   # Redux selectors
+```
+
+```
+packages/python/goatlib/src/goatlib/tools/
+├── workflow_runner.py                 # NEW: Windmill workflow orchestrator
+├── save_to_project.py                 # NEW: Finalize temporary layer
+├── schemas.py                         # Add 'temporary' field
+└── base.py                            # Skip add_to_project() when temporary
 ```
 
 ---
@@ -683,67 +975,110 @@ apps/web/lib/
 
 **Implementation**: Debounced `updateWorkflow` call on config changes
 
-### 2. Execution Mode
+### 2. Execution Backend
 
-**Decision**: Two modes - "Run Node" and "Run to Here"
-
-**Rationale**: Provides flexibility for debugging and iterative development
-
-**"Run Node"**: Executes only selected node (upstream must be complete)  
-**"Run to Here"**: Executes all upstream nodes + selected node
-
-### 3. Layer Naming
-
-**Decision**: Auto-generated names: `{NodeLabel} ({WorkflowName})`
-
-**Rationale**: Keep it simple for MVP, can add custom naming later
-
-### 4. Intermediate Results
-
-**Decision**: Keep intermediate layers in project
+**Decision**: Windmill "Workflows as Code" (`@task` decorators)
 
 **Rationale**: 
-- Users may want to inspect intermediate results
-- Re-running from a node replaces its output
-- Layers stored in a "Workflows" folder for organization
+- Users may close browser during long-running workflows
+- Windmill handles all job tracking, progress, and state
+- No need to store execution state in our database
+- Same polling pattern as existing tools
 
-### 5. Scheduling
+**Alternatives Considered**:
+- Frontend orchestration (rejected: browser close breaks execution)
+- Windmill OpenFlow (more complex, not needed for MVP)
 
-**Decision**: Not in MVP, designed for future addition
+### 3. Job State Storage
 
-**Rationale**: Focus on core workflow builder first
+**Decision**: Use Windmill as single source of truth (no `last_job_id` in DB)
 
-### 6. Templates
+**Rationale**:
+- Query Windmill for jobs with `args.workflow_id = this_workflow`
+- Existing job polling infrastructure works unchanged
+- No duplicate state to keep in sync
 
-**Decision**: Not in MVP - "Add Workflow" creates blank workflow directly
+### 4. Temporary Layers
 
-**Rationale**: Reduce complexity, can add template gallery later
+**Decision**: Tool outputs are temporary until explicitly saved
+
+**Rationale**:
+- Prevents cluttering project with intermediate results
+- User controls what gets added to layer list
+- Easy cleanup on re-run
+
+**Implementation**: 
+- `temporary: true` flag on tool inputs
+- `is_temporary` column on layer table
+- "Save" button calls finalize endpoint
+
+### 5. Progress Tracking
+
+**Decision**: Poll every 2 seconds (same as existing tools)
+
+**Rationale**:
+- Simple, proven pattern
+- Windmill provides `workflow_as_code_status` in job response
+- No WebSocket/SSE complexity needed
+
+### 6. Cleanup Strategy
+
+**Decision**: Delete old temporary layers when starting new run
+
+**Rationale**:
+- Simple mental model: "Run" replaces previous results
+- No orphaned layers accumulating
+- Layers that were "Saved" are NOT deleted (not temporary anymore)
+
+### 7. Disconnected Subgraphs
+
+**Decision**: Execute all in single Windmill job, sequential order
+
+**Rationale**:
+- Simpler implementation
+- Resource-friendly (not competing for workers)
+- Can optimize with parallel execution later
+
+### 8. "Save to Project" Node (Future)
+
+**Decision**: Will be a first-class node type, not just a button
+
+**Rationale**:
+- Explicit in workflow graph
+- Can be placed anywhere in the chain
+- Consistent with other node types
 
 ---
 
 ## Future Considerations
 
+### Planned Enhancements
+
+1. **"Save to Project" Node**: Explicit node type for saving results (not just a button)
+2. **Run Node / Run to Here**: Execute partial workflows for debugging
+3. **Parallel Execution**: Run independent branches concurrently using Windmill's `branchall`
+4. **Scheduled Execution**: Cron-based workflow runs via Windmill schedules
+5. **Workflow Templates Gallery**: Predefined workflows for common use cases
+6. **Version History**: Track workflow changes over time
+
 ### Potential Enhancements
 
-1. **Workflow Templates Gallery**: Predefined workflows for common use cases
-2. **Scheduled Execution**: Cron-based workflow runs
-3. **Workflow Sharing**: Share workflows between projects/users
-4. **Parallel Execution**: Run independent branches concurrently
-5. **Conditional Logic**: Branch based on intermediate results
-6. **Loop Nodes**: Iterate over feature collections
-7. **External Data Sources**: Fetch data from APIs as input
-8. **Notifications**: Alert on completion/failure
-9. **Version History**: Track workflow changes over time
-10. **Export/Import**: Share workflows as JSON files
+1. **Workflow Sharing**: Share workflows between projects/users
+2. **Conditional Logic**: Branch based on intermediate results
+3. **Loop Nodes**: Iterate over feature collections
+4. **External Data Sources**: Fetch data from APIs as input
+5. **Notifications**: Alert on completion/failure (email, Slack)
+6. **Export/Import**: Share workflows as JSON files
 
-### Migration to Windmill Flows
+### OpenFlow Migration (Optional)
 
-If performance/scalability requires native Windmill workflows:
+If we need more advanced Windmill features (complex branching, approval steps), we could:
 
-1. Generate Windmill Flow definitions from ReactFlow graph
-2. Submit as flow execution instead of sequential scripts
-3. Track flow steps instead of individual jobs
-4. Would require changes to Windmill client and job tracking
+1. Generate Windmill OpenFlow JSON from ReactFlow graph
+2. Submit as native Windmill Flow instead of "Workflows as Code"
+3. Use `flow_status` instead of `workflow_as_code_status` for progress
+
+Current "Workflows as Code" approach is simpler and sufficient for MVP.
 
 ---
 

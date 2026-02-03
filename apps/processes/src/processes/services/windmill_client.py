@@ -457,14 +457,16 @@ class WindmillClient:
             if include_results:
                 # Jobs that need full details:
                 # - layer_export, print_report: need args for filtering and results for download
+                # - workflow_runner: need results for temp_layer_ids
                 # - failed jobs: need result to extract error name/message
                 jobs_needing_details = [
                     j
                     for j in jobs
                     if j.get("script_path", "").endswith(
-                        ("layer_export", "print_report")
+                        ("layer_export", "print_report", "workflow_runner")
                     )
                     or j.get("success") is False  # Failed jobs need error details
+                    or j.get("running") is True  # Running jobs may need flow_status
                 ]
                 if jobs_needing_details:
 
@@ -474,9 +476,26 @@ class WindmillClient:
                             full_job = await self.get_job_with_result(job["id"])
                             # Merge full job details into the list item
                             job["args"] = full_job.get("args")
+                            # Include flow_status for workflow tracking (workflow_as_code_status)
+                            if full_job.get("flow_status"):
+                                job["flow_status"] = full_job.get("flow_status")
                             # Include result for successful jobs (downloads) and failed jobs (errors)
-                            if full_job.get("success") is True or full_job.get("success") is False:
+                            if (
+                                full_job.get("success") is True
+                                or full_job.get("success") is False
+                            ):
                                 job["result"] = full_job.get("result")
+                            # For workflow_runner jobs, fetch child job status for real-time tracking
+                            if job.get("script_path", "").endswith("workflow_runner"):
+                                # For running jobs, query child jobs directly from Windmill
+                                if full_job.get("running"):
+                                    node_status = await self._get_child_jobs_status(
+                                        job["id"]
+                                    )
+                                    if node_status:
+                                        job["node_status"] = node_status
+                                # For failed jobs, result already contains node_results with timing
+                                # No need for flow_user_state - it doesn't work for scripts
                         except Exception as e:
                             logger.warning(
                                 f"Failed to fetch details for job {job['id']}: {e}"
@@ -519,6 +538,136 @@ class WindmillClient:
                 logger.warning(f"Failed to fetch result for job {job_id}: {e}")
 
         return job
+
+    async def get_flow_user_state(self, job_id: str, key: str) -> Any:
+        """Get flow user state for a job at a given key.
+
+        Args:
+            job_id: Windmill job ID
+            key: State key to retrieve
+
+        Returns:
+            State value (usually a dict)
+
+        Raises:
+            WindmillError: If API call fails
+        """
+        client = self._get_client()
+        workspace = settings.WINDMILL_WORKSPACE
+
+        try:
+            response = await self._run_sync(
+                client.client.get,
+                f"{settings.WINDMILL_URL}/api/w/{workspace}/jobs/flow/user_states/{job_id}/{key}",
+                headers={"Authorization": f"Bearer {settings.WINDMILL_TOKEN}"},
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.warning(f"Failed to get flow user state for {job_id}/{key}: {e}")
+            return None
+
+    async def _get_child_jobs_status(
+        self, parent_job_id: str
+    ) -> dict[str, Any] | None:
+        """Get status of child jobs spawned by a workflow_runner job.
+
+        Queries Windmill for jobs with parent_job={parent_job_id} and builds
+        node_status from their args (which contain node_id) and status.
+
+        Args:
+            parent_job_id: The workflow_runner job ID
+
+        Returns:
+            Dict mapping node_id -> status object with status, started_at, duration_ms
+        """
+        client = self._get_client()
+        workspace = settings.WINDMILL_WORKSPACE
+
+        try:
+            # Query Windmill for child jobs of this parent
+            # Note: /jobs/list doesn't return args, only job IDs and basic status
+            response = await self._run_sync(
+                client.client.get,
+                f"{settings.WINDMILL_URL}/api/w/{workspace}/jobs/list",
+                params={
+                    "parent_job": parent_job_id,
+                    "per_page": 100,
+                },
+                headers={"Authorization": f"Bearer {settings.WINDMILL_TOKEN}"},
+            )
+            response.raise_for_status()
+            child_jobs = response.json()
+
+            if not child_jobs:
+                return None
+
+            node_status: dict[str, Any] = {}
+
+            # Fetch full job details (including args) for each child job
+            async def fetch_child_details(job: dict[str, Any]) -> None:
+                try:
+                    job_id = job.get("id")
+                    if not job_id:
+                        return
+
+                    # Get full job details including args
+                    full_job = await self.get_job_status(job_id)
+                    args = full_job.get("args", {})
+                    node_id = args.get("node_id") if args else None
+
+                    if not node_id:
+                        return
+
+                    # Determine status from job state
+                    if full_job.get("running"):
+                        status = "running"
+                    elif full_job.get("success") is True:
+                        status = "completed"
+                    elif full_job.get("success") is False:
+                        status = "failed"
+                    else:
+                        status = "pending"  # queued/waiting
+
+                    # Build status object
+                    status_obj: dict[str, Any] = {"status": status}
+
+                    # Add timing info if available
+                    if full_job.get("started_at"):
+                        started_at = full_job.get("started_at")
+                        if isinstance(started_at, str):
+                            from datetime import datetime
+
+                            try:
+                                dt = datetime.fromisoformat(
+                                    started_at.replace("Z", "+00:00")
+                                )
+                                status_obj["started_at"] = dt.timestamp()
+                            except Exception:
+                                pass
+
+                    # Add duration for completed jobs
+                    if status == "completed" and full_job.get("duration_ms"):
+                        status_obj["duration_ms"] = full_job.get("duration_ms")
+
+                    node_status[node_id] = status_obj
+
+                except Exception as e:
+                    logger.warning(f"Failed to fetch child job details: {e}")
+
+            # Fetch all child job details in parallel
+            await asyncio.gather(
+                *[fetch_child_details(job) for job in child_jobs],
+                return_exceptions=True,
+            )
+
+            return node_status if node_status else None
+
+        except Exception as e:
+            logger.warning(f"Failed to get child jobs for {parent_job_id}: {e}")
+            return None
 
 
 # Global client instance

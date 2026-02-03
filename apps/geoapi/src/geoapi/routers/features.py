@@ -1,9 +1,10 @@
 """Features router for OGC Features API endpoints."""
 
 import logging
-from typing import Optional
+from typing import Annotated, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from geoapi.dependencies import (
     BBoxDep,
@@ -13,6 +14,7 @@ from geoapi.dependencies import (
     OffsetDep,
     PropertiesDep,
 )
+from geoapi.deps.auth import get_optional_user_id
 from geoapi.models import Feature, FeatureCollection, Link
 from geoapi.services.feature_service import feature_service
 from geoapi.services.layer_service import layer_service
@@ -20,6 +22,9 @@ from geoapi.services.layer_service import layer_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Features"])
+
+# Type alias for optional user ID dependency
+OptionalUserIdDep = Annotated[UUID | None, Depends(get_optional_user_id)]
 
 
 @router.get(
@@ -32,6 +37,7 @@ async def get_features(
     layer_info: LayerInfoDep,
     limit: LimitDep,
     offset: OffsetDep,
+    user_id: OptionalUserIdDep = None,
     bbox: BBoxDep = None,
     properties: PropertiesDep = None,
     cql_filter: CqlFilterDep = None,
@@ -39,6 +45,7 @@ async def get_features(
     sortby: Optional[str] = Query(
         default=None, description="Sort column (prefix with - for desc)"
     ),
+    temp: bool = Query(default=False, description="Serve from temp storage"),
 ) -> FeatureCollection:
     """Get features from a collection.
 
@@ -49,7 +56,47 @@ async def get_features(
     - CQL2 filtering
     - ID filtering
     - Sorting
+    - Temp layer serving via ?temp=true (collection ID is the layer UUID)
     """
+    # Handle temp layer serving
+    # URL format: /collections/{layer_uuid}/items?temp=true
+    if temp:
+        if not user_id:
+            raise HTTPException(
+                status_code=401, detail="Authentication required for temp layers"
+            )
+        user_id_str = str(user_id)
+        layer_uuid = layer_info.layer_id
+
+        features, total_count = feature_service.get_temp_features(
+            user_id=user_id_str,
+            layer_uuid=layer_uuid,
+            limit=limit,
+            offset=offset,
+            bbox=bbox,
+            properties=properties,
+        )
+
+        # Build links
+        base_url = str(request.base_url).rstrip("/")
+
+        links = [
+            Link(
+                href=f"{base_url}/collections/{layer_uuid}/items?temp=true",
+                rel="self",
+                type="application/geo+json",
+            ),
+        ]
+
+        return FeatureCollection(
+            type="FeatureCollection",
+            features=[Feature(**f) for f in features],
+            numberMatched=total_count,
+            numberReturned=len(features),
+            links=links,
+        )
+
+    # Standard layer serving
     # Get layer metadata
     logger.debug("Getting features for layer_info: %s", layer_info)
     metadata = await layer_service.get_layer_metadata(layer_info)

@@ -132,7 +132,9 @@ def test_tippecanoe_command_default_zoom() -> None:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             # Pass polygon geometry type (or None for default polygon behavior)
-            generator._run_tippecanoe("/input.fgb", "/output.pmtiles", geometry_type="POLYGON")
+            generator._run_tippecanoe(
+                "/input.fgb", "/output.pmtiles", geometry_type="POLYGON"
+            )
 
             cmd = mock_run.call_args[0][0]
             assert "-z14" in cmd  # Default max zoom 14
@@ -165,7 +167,9 @@ def test_tippecanoe_command_point_layer() -> None:
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
-            generator._run_tippecanoe("/input.geojson", "/output.pmtiles", geometry_type="POINT")
+            generator._run_tippecanoe(
+                "/input.geojson", "/output.pmtiles", geometry_type="POINT"
+            )
 
             cmd = mock_run.call_args[0][0]
             # Point-specific settings: retain all features and only drop if needed

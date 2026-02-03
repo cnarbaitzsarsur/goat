@@ -172,6 +172,7 @@ export const joinSchema = z.object({
   column_statistics: z.object({
     operation: statisticOperationEnum,
     field: z.string(),
+    result_name: z.string().optional(),
   }),
 });
 
@@ -210,6 +211,7 @@ export const aggregatePointSchema = z.object({
   column_statistics: z.object({
     operation: statisticOperationEnum,
     field: z.string().optional(),
+    result_name: z.string().optional(),
   }),
   source_group_by_field: z.string().array().optional(),
   scenario_id: z.string().optional(),

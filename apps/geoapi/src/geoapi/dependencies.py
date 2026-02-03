@@ -24,7 +24,9 @@ from geoapi.ducklake import ducklake_manager
 logger = logging.getLogger(__name__)
 
 # Thread pool for sync DuckDB operations in dependencies
-_layer_info_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="layer_info")
+_layer_info_executor = ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="layer_info"
+)
 
 
 class LayerInfo(BaseModel):
@@ -107,15 +109,28 @@ def get_layer_info_sync(collection_id: str) -> LayerInfo:
 
 async def get_layer_info(
     collection_id: Annotated[str, Path(alias="collectionId")],
+    temp: Annotated[
+        bool, Query(description="Temp layer mode (skip DuckLake lookup)")
+    ] = False,
 ) -> LayerInfo:
     """Extract layer info from collection ID in URL path.
 
     The collection ID is just the layer UUID (with or without hyphens).
     Schema is looked up from DuckLake catalog with caching.
 
+    If temp=true query param is set, skip DuckLake lookup (for temp layer serving).
+
     Runs in a thread pool to avoid blocking the async event loop
     when DuckDB query is needed (cache miss).
     """
+    # For temp layers, return placeholder without DuckLake lookup
+    if temp:
+        return LayerInfo(
+            layer_id=normalize_layer_id(collection_id),
+            schema_name="",
+            table_name="",
+        )
+
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         _layer_info_executor,

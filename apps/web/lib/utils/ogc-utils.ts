@@ -55,6 +55,9 @@ export function inferInputType(
   // Check for explicit widget types in x-ui metadata BEFORE getting effective schema
   // This handles union types (anyOf) that have x-ui at the top level
   const topLevelUiMeta = schema["x-ui"];
+  if (topLevelUiMeta?.widget === "layer-selector") {
+    return "layer";
+  }
   if (topLevelUiMeta?.widget === "time-picker") {
     return "time-picker";
   }
@@ -76,6 +79,9 @@ export function inferInputType(
 
   // Check for explicit widget types in x-ui metadata (for non-union schemas)
   const uiMeta = effectiveSchema["x-ui"];
+  if (uiMeta?.widget === "layer-selector") {
+    return "layer";
+  }
   if (uiMeta?.widget === "time-picker") {
     return "time-picker";
   }

@@ -21,7 +21,6 @@ from typing import Any
 
 import duckdb
 import pytest
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.layer_export import LayerExportRunner
 
@@ -32,6 +31,7 @@ pytestmark = pytest.mark.integration
 # ============================================================================
 # CRS Transformation Helper Functions
 # ============================================================================
+
 
 def wgs84_to_web_mercator(lon: float, lat: float) -> tuple[float, float]:
     """Convert WGS84 (EPSG:4326) coordinates to Web Mercator (EPSG:3857).
@@ -118,25 +118,26 @@ def parse_wkt_polygon_centroid(wkt: str) -> tuple[float, float]:
     # Simple average of coordinates
     coords_str = wkt.replace("POLYGON", "").strip().strip("()")
     coords_str = coords_str.strip("()")  # Remove outer ring parens
-    
+
     coords = []
     for pair in coords_str.split(","):
         x, y = pair.strip().split()
         coords.append((float(x), float(y)))
-    
+
     # Average (excluding last point which closes the polygon)
     if len(coords) > 1:
         coords = coords[:-1]
-    
+
     avg_x = sum(c[0] for c in coords) / len(coords)
     avg_y = sum(c[1] for c in coords) / len(coords)
-    
+
     return (avg_x, avg_y)
 
 
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def export_test_points(
@@ -195,6 +196,7 @@ def export_runner(tool_settings: ToolSettings) -> LayerExportRunner:
 # Export Format Tests
 # ============================================================================
 
+
 class TestLayerExportFormats:
     """Test export to various file formats."""
 
@@ -206,29 +208,29 @@ class TestLayerExportFormats:
     ):
         """Test export to GeoPackage format."""
         layer_id, feature_count = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.gpkg"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
                 output_path=str(output_path),
                 output_format="GPKG",
             )
-            
+
             assert output_path.exists()
             assert output_path.stat().st_size > 0
-            
+
             # Verify content by reading with DuckDB
             con = duckdb.connect()
             con.execute("INSTALL spatial; LOAD spatial;")
-            
+
             # GPKG layer name is typically the file stem
             result = con.execute(f"""
                 SELECT * FROM ST_Read('{output_path}')
             """).fetchall()
-            
+
             assert len(result) == feature_count
             con.close()
 
@@ -240,28 +242,30 @@ class TestLayerExportFormats:
     ):
         """Test export to GeoJSON format."""
         layer_id, feature_count = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
                 output_path=str(output_path),
                 output_format="GeoJSON",
             )
-            
+
             assert output_path.exists()
-            
+
             # Verify GeoJSON structure
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             assert geojson["type"] == "FeatureCollection"
             assert len(geojson["features"]) == feature_count
-            
+
             # Check feature properties (Munich from german_cities.parquet)
-            munich = next(f for f in geojson["features"] if f["properties"]["name"] == "Munich")
+            munich = next(
+                f for f in geojson["features"] if f["properties"]["name"] == "Munich"
+            )
             assert munich["properties"]["population"] == 1500000
 
     def test_export_to_csv(
@@ -272,30 +276,30 @@ class TestLayerExportFormats:
     ):
         """Test export to CSV format (geometry as WKT)."""
         layer_id, feature_count = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.csv"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
                 output_path=str(output_path),
                 output_format="CSV",
             )
-            
+
             assert output_path.exists()
-            
+
             # Read and verify CSV content
             con = duckdb.connect()
             result = con.execute(f"SELECT * FROM read_csv('{output_path}')").fetchdf()
-            
+
             assert len(result) == feature_count
             assert "geometry" in result.columns
-            
+
             # Geometry should be WKT
             munich_row = result[result["name"] == "Munich"].iloc[0]
             assert "POINT" in str(munich_row["geometry"])
-            
+
             con.close()
 
     def test_export_to_parquet(
@@ -306,23 +310,25 @@ class TestLayerExportFormats:
     ):
         """Test export to Parquet format (native DuckDB)."""
         layer_id, feature_count = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.parquet"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
                 output_path=str(output_path),
                 output_format="Parquet",
             )
-            
+
             assert output_path.exists()
-            
+
             # Read and verify Parquet content
             con = duckdb.connect()
-            result = con.execute(f"SELECT * FROM read_parquet('{output_path}')").fetchall()
-            
+            result = con.execute(
+                f"SELECT * FROM read_parquet('{output_path}')"
+            ).fetchall()
+
             assert len(result) == feature_count
             con.close()
 
@@ -330,6 +336,7 @@ class TestLayerExportFormats:
 # ============================================================================
 # CRS Transformation Tests
 # ============================================================================
+
 
 class TestLayerExportCRS:
     """Test CRS transformation during export."""
@@ -345,10 +352,10 @@ class TestLayerExportCRS:
         Verifies that coordinate values after transformation are mathematically correct.
         """
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -356,35 +363,34 @@ class TestLayerExportCRS:
                 output_format="GeoJSON",
                 crs="EPSG:3857",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             # Find Munich point
             munich_feature = next(
-                f for f in geojson["features"]
-                if f["properties"]["name"] == "Munich"
+                f for f in geojson["features"] if f["properties"]["name"] == "Munich"
             )
-            
+
             # Get exported coordinates (should be in EPSG:3857 / meters)
             exported_x, exported_y = munich_feature["geometry"]["coordinates"]
-            
+
             # Calculate expected coordinates using formula
             # Munich: 11.576124°E, 48.137154°N
             expected_x, expected_y = wgs84_to_web_mercator(11.576124, 48.137154)
-            
+
             # Allow small tolerance for floating point
             tolerance = 1.0  # 1 meter tolerance
-            
-            assert abs(exported_x - expected_x) < tolerance, (
-                f"X coordinate mismatch: exported={exported_x}, expected={expected_x}"
-            )
-            assert abs(exported_y - expected_y) < tolerance, (
-                f"Y coordinate mismatch: exported={exported_y}, expected={expected_y}"
-            )
-            
+
+            assert (
+                abs(exported_x - expected_x) < tolerance
+            ), f"X coordinate mismatch: exported={exported_x}, expected={expected_x}"
+            assert (
+                abs(exported_y - expected_y) < tolerance
+            ), f"Y coordinate mismatch: exported={exported_y}, expected={expected_y}"
+
             # Verify all points are in reasonable Web Mercator range
             for feature in geojson["features"]:
                 x, y = feature["geometry"]["coordinates"]
@@ -404,10 +410,10 @@ class TestLayerExportCRS:
         Verifies coordinate values are in reasonable UTM range.
         """
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -415,24 +421,23 @@ class TestLayerExportCRS:
                 output_format="GeoJSON",
                 crs="EPSG:32632",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             # Munich point in UTM 32N
             munich_feature = next(
-                f for f in geojson["features"]
-                if f["properties"]["name"] == "Munich"
+                f for f in geojson["features"] if f["properties"]["name"] == "Munich"
             )
-            
+
             utm_x, utm_y = munich_feature["geometry"]["coordinates"]
-            
+
             # UTM Zone 32N easting should be around 500,000 (false easting)
             # Munich is near 11.5°E, so easting ~691,000
             assert 400_000 < utm_x < 800_000, f"UTM easting out of range: {utm_x}"
-            
+
             # UTM northing for Munich (48.1°N) should be around 5,333,000
             assert 5_000_000 < utm_y < 6_000_000, f"UTM northing out of range: {utm_y}"
 
@@ -444,10 +449,10 @@ class TestLayerExportCRS:
     ):
         """Test CSV export with CRS transformation (WKT geometry)."""
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.csv"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -455,25 +460,25 @@ class TestLayerExportCRS:
                 output_format="CSV",
                 crs="EPSG:3857",
             )
-            
+
             assert output_path.exists()
-            
+
             # Read CSV
             con = duckdb.connect()
             result = con.execute(f"SELECT * FROM read_csv('{output_path}')").fetchdf()
-            
+
             # Find Munich row
             munich_row = result[result["name"] == "Munich"].iloc[0]
             wkt = munich_row["geometry"]
-            
+
             # Parse WKT and verify coordinates
             exported_x, exported_y = parse_wkt_point(wkt)
             expected_x, expected_y = wgs84_to_web_mercator(11.576124, 48.137154)
-            
+
             tolerance = 1.0
             assert abs(exported_x - expected_x) < tolerance
             assert abs(exported_y - expected_y) < tolerance
-            
+
             con.close()
 
     def test_export_gpkg_with_crs_preserves_transformation(
@@ -484,10 +489,10 @@ class TestLayerExportCRS:
     ):
         """Test GeoPackage export with CRS transformation."""
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.gpkg"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -495,32 +500,32 @@ class TestLayerExportCRS:
                 output_format="GPKG",
                 crs="EPSG:3857",
             )
-            
+
             assert output_path.exists()
-            
+
             # Read GPKG and extract coordinates
             con = duckdb.connect()
             con.execute("INSTALL spatial; LOAD spatial;")
-            
+
             result = con.execute(f"""
                 SELECT name, ST_X(geom) as x, ST_Y(geom) as y
                 FROM ST_Read('{output_path}')
                 WHERE name = 'Munich'
             """).fetchone()
-            
+
             assert result is not None
             name, exported_x, exported_y = result
-            
+
             expected_x, expected_y = wgs84_to_web_mercator(11.576124, 48.137154)
-            
+
             tolerance = 1.0
-            assert abs(exported_x - expected_x) < tolerance, (
-                f"GPKG X coordinate mismatch: {exported_x} vs {expected_x}"
-            )
-            assert abs(exported_y - expected_y) < tolerance, (
-                f"GPKG Y coordinate mismatch: {exported_y} vs {expected_y}"
-            )
-            
+            assert (
+                abs(exported_x - expected_x) < tolerance
+            ), f"GPKG X coordinate mismatch: {exported_x} vs {expected_x}"
+            assert (
+                abs(exported_y - expected_y) < tolerance
+            ), f"GPKG Y coordinate mismatch: {exported_y} vs {expected_y}"
+
             con.close()
 
     def test_export_without_crs_preserves_original(
@@ -531,10 +536,10 @@ class TestLayerExportCRS:
     ):
         """Test export without CRS transformation preserves EPSG:4326."""
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -542,21 +547,20 @@ class TestLayerExportCRS:
                 output_format="GeoJSON",
                 crs=None,  # No CRS transformation
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             # Find Munich point
             munich_feature = next(
-                f for f in geojson["features"]
-                if f["properties"]["name"] == "Munich"
+                f for f in geojson["features"] if f["properties"]["name"] == "Munich"
             )
-            
+
             # Should be original WGS84 coordinates
             x, y = munich_feature["geometry"]["coordinates"]
-            
+
             # Original: 11.576124, 48.137154
             assert abs(x - 11.576124) < 0.0001
             assert abs(y - 48.137154) < 0.0001
@@ -565,6 +569,7 @@ class TestLayerExportCRS:
 # ============================================================================
 # Filter/Query Tests
 # ============================================================================
+
 
 class TestLayerExportFilters:
     """Test export with filtering."""
@@ -577,10 +582,10 @@ class TestLayerExportFilters:
     ):
         """Test export with SQL WHERE clause filter."""
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -588,12 +593,12 @@ class TestLayerExportFilters:
                 output_format="GeoJSON",
                 query="population > 2000000",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             # Only Berlin (3.6M) should be included
             assert len(geojson["features"]) == 1
             assert geojson["features"][0]["properties"]["name"] == "Berlin"
@@ -606,10 +611,10 @@ class TestLayerExportFilters:
     ):
         """Test export with name filter."""
         layer_id, _ = export_test_points
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -617,12 +622,12 @@ class TestLayerExportFilters:
                 output_format="GeoJSON",
                 query="name = 'Munich'",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             assert len(geojson["features"]) == 1
             assert geojson["features"][0]["properties"]["name"] == "Munich"
 
@@ -630,6 +635,7 @@ class TestLayerExportFilters:
 # ============================================================================
 # Polygon Export Tests
 # ============================================================================
+
 
 class TestLayerExportPolygons:
     """Test polygon layer export."""
@@ -642,24 +648,24 @@ class TestLayerExportPolygons:
     ):
         """Test polygon export to GeoJSON."""
         layer_id, feature_count = export_test_polygons
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
                 output_path=str(output_path),
                 output_format="GeoJSON",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             assert len(geojson["features"]) == feature_count
-            
+
             # Check geometry types
             for feature in geojson["features"]:
                 assert feature["geometry"]["type"] in ("Polygon", "MultiPolygon")
@@ -672,10 +678,10 @@ class TestLayerExportPolygons:
     ):
         """Test polygon export with CRS transformation."""
         layer_id, _ = export_test_polygons
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test.geojson"
-            
+
             export_runner._export_to_file(
                 layer_id=layer_id,
                 user_id=test_user["id"],
@@ -683,12 +689,12 @@ class TestLayerExportPolygons:
                 output_format="GeoJSON",
                 crs="EPSG:3857",
             )
-            
+
             assert output_path.exists()
-            
+
             with open(output_path) as f:
                 geojson = json.load(f)
-            
+
             # Verify coordinates are in Web Mercator range
             for feature in geojson["features"]:
                 coords = feature["geometry"]["coordinates"][0]  # Outer ring
