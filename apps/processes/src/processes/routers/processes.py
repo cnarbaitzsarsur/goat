@@ -548,6 +548,13 @@ def _windmill_status_to_ogc(job: dict[str, Any]) -> StatusCode:
     if job.get("running"):
         return StatusCode.running
     elif job.get("success") is True:
+        # For workflow_runner jobs, check if the result indicates errors
+        # Windmill marks the job as success even if the workflow had partial failures
+        result = job.get("result")
+        if isinstance(result, dict):
+            # Check for workflow errors (status="partial" or errors list)
+            if result.get("status") == "partial" or result.get("errors"):
+                return StatusCode.failed
         return StatusCode.successful
     elif job.get("canceled"):
         # Check canceled BEFORE failed, as canceled jobs may also have success=false
@@ -615,17 +622,42 @@ def _windmill_job_to_status_info(job: dict[str, Any], base_url: str) -> StatusIn
 
     # Extract error message for failed jobs
     # Windmill returns: {"error": {"name": "ErrorName", "message": "Error message", "stack": "..."}}
+    # Workflow runner returns: {"status": "partial", "errors": [{"node_id": "...", "error": {...}}]}
     message = None
     if ogc_status == StatusCode.failed:
         result = job.get("result")
-        if isinstance(result, dict) and "error" in result:
-            error_info = result["error"]
-            if isinstance(error_info, dict):
-                error_name = error_info.get("name", "Error")
-                error_message = error_info.get("message", "")
-                message = (
-                    f"{error_name}: {error_message}" if error_message else error_name
-                )
+        if isinstance(result, dict):
+            # Check for workflow errors first
+            workflow_errors = result.get("errors", [])
+            if (
+                workflow_errors
+                and isinstance(workflow_errors, list)
+                and len(workflow_errors) > 0
+            ):
+                first_error = workflow_errors[0]
+                error_info = first_error.get("error", {})
+                if isinstance(error_info, dict):
+                    error_name = error_info.get("name", "Error")
+                    error_message = error_info.get("message", "")
+                    node_id = first_error.get("node_id", "unknown")
+                    message = (
+                        f"Node {node_id}: {error_name}: {error_message}"
+                        if error_message
+                        else f"Node {node_id}: {error_name}"
+                    )
+                else:
+                    message = f"Workflow error: {error_info}"
+            # Fallback to direct error format
+            elif "error" in result:
+                error_info = result["error"]
+                if isinstance(error_info, dict):
+                    error_name = error_info.get("name", "Error")
+                    error_message = error_info.get("message", "")
+                    message = (
+                        f"{error_name}: {error_message}"
+                        if error_message
+                        else error_name
+                    )
         # Fallback to generic message if no structured error (avoid exposing raw logs)
         if not message:
             message = "Unknown error"

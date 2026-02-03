@@ -12,7 +12,7 @@ from typing import Any, Self
 from pydantic import ConfigDict, Field
 
 from goatlib.analysis.geoanalysis.clustering_zones import ClusteringZones
-from goatlib.analysis.schemas.clustering import ClusteringParams, ClusterType
+from goatlib.analysis.schemas.clustering import ClusteringParams
 from goatlib.analysis.schemas.ui import (
     SECTION_INPUT,
     SECTION_OUTPUT,
@@ -28,14 +28,12 @@ from goatlib.tools.schemas import (
     ToolInputBase,
     get_default_layer_name,
 )
-from goatlib.tools.style import build_ordinal_color_map, hex_to_rgb, DEFAULT_POINT_STYLE
+from goatlib.tools.style import DEFAULT_POINT_STYLE, build_ordinal_color_map, hex_to_rgb
 
 logger = logging.getLogger(__name__)
 
 
-class ClusteringZonesToolParams(
-    ScenarioSelectorMixin, ToolInputBase, ClusteringParams
-):
+class ClusteringZonesToolParams(ScenarioSelectorMixin, ToolInputBase, ClusteringParams):
     """Parameters for balanced zones clustering tool.
 
     Inherits clustering options from ClusteringParams, adds layer context from ToolInputBase.
@@ -90,8 +88,7 @@ class ClusteringZonesToolParams(
 
     nb_cluster: int = Field(
         ...,
-        description="Number of clusters "
-        "It should be an integer ",
+        description="Number of clusters " "It should be an integer ",
         json_schema_extra=ui_field(
             section="input",
             field_order=2,
@@ -116,9 +113,7 @@ class ClusteringZonesToolParams(
     )
 
 
-class ZonesClusteringToolRunner(
-    BaseToolRunner[ClusteringZonesToolParams]
-):
+class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
     """zones clustering tool runner for Windmill."""
 
     tool_class = ClusteringZones
@@ -225,6 +220,7 @@ def main(params: ClusteringZonesToolParams) -> dict[str, Any]:
 if __name__ == "__main__":
     # For testing
     import sys
+
     from pydantic import ValidationError
 
     try:

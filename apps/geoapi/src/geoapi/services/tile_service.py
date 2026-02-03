@@ -315,6 +315,7 @@ class TileService:
 
         This bypasses the DuckDB schema lookup by searching the filesystem directly.
         PMTiles are stored as: {tiles_data_dir}/{schema_name}/t_{layer_id_no_hyphens}.pmtiles
+        Temp PMTiles are stored as: {temp_data_dir}/**/t_{layer_id_no_hyphens}.pmtiles
 
         Args:
             layer_id: Layer UUID (with or without hyphens)
@@ -333,6 +334,14 @@ class TileService:
         # Search for PMTiles file: */t_{layer_id}.pmtiles
         pattern = f"*/t_{layer_id_normalized}.pmtiles"
         matches = list(self.tiles_data_dir.glob(pattern))
+
+        # Also search in temp directory
+        if not matches:
+            temp_data_dir = self.tiles_data_dir.parent / "temporary"
+            if temp_data_dir.exists():
+                matches = list(
+                    temp_data_dir.glob(f"**/t_{layer_id_normalized}.pmtiles")
+                )
 
         if matches:
             path = matches[0]
@@ -590,95 +599,6 @@ class TileService:
             elapsed_ms,
         )
         return (tile_data, is_gzip, "pmtiles")
-
-    def get_temp_pmtiles_path(
-        self, user_id: str, workflow_id: str, node_id: str
-    ) -> Path | None:
-        """Get the path to a temp layer's PMTiles file.
-
-        Args:
-            user_id: User UUID (with or without hyphens)
-            workflow_id: Workflow UUID (with or without hyphens)
-            node_id: Node ID within the workflow
-
-        Returns:
-            Path to PMTiles file if exists, None otherwise
-        """
-        user_id_clean = user_id.replace("-", "")
-        workflow_id_clean = workflow_id.replace("-", "") if workflow_id else workflow_id
-        # Temp data is in /data/temporary, same parent as tiles (/data/tiles)
-        temp_data_root = self.tiles_data_dir.parent / "temporary"
-        pmtiles_path = (
-            temp_data_root
-            / user_id_clean
-            / workflow_id_clean
-            / node_id
-            / "tiles.pmtiles"
-        )
-
-        if pmtiles_path.exists():
-            return pmtiles_path
-        return None
-
-    async def get_tile_from_temp_pmtiles(
-        self,
-        user_id: str,
-        workflow_id: str,
-        node_id: str,
-        z: int,
-        x: int,
-        y: int,
-    ) -> Optional[tuple[bytes, bool, str]]:
-        """Get tile from a temporary layer's PMTiles file.
-
-        Used for workflow preview - reads from /data/temporary/{user_id}/{workflow_id}/{node_id}/tiles.pmtiles
-
-        Args:
-            user_id: User UUID
-            workflow_id: Workflow UUID
-            node_id: Node ID within the workflow
-            z: Zoom level
-            x: Tile X coordinate
-            y: Tile Y coordinate
-
-        Returns:
-            Tuple of (tile_data, is_gzip, source) or None if not available
-        """
-        start_time = time.monotonic()
-
-        pmtiles_path = self.get_temp_pmtiles_path(user_id, workflow_id, node_id)
-        if pmtiles_path is None:
-            logger.debug(
-                "Temp PMTiles not found for user=%s, workflow=%s, node=%s",
-                user_id[:8] if user_id else "None",
-                workflow_id[:8] if workflow_id else "None",
-                node_id,
-            )
-            return None
-
-        result = await self._get_tile_from_pmtiles_path(pmtiles_path, z, x, y)
-
-        elapsed_ms = (time.monotonic() - start_time) * 1000
-        if result is None:
-            logger.debug(
-                "Temp PMTiles tile %d/%d/%d not found (%.1fms)",
-                z,
-                x,
-                y,
-                elapsed_ms,
-            )
-            return None
-
-        tile_data, is_gzip = result
-        logger.debug(
-            "Temp PMTiles tile %d/%d/%d: %d bytes (%.1fms)",
-            z,
-            x,
-            y,
-            len(tile_data),
-            elapsed_ms,
-        )
-        return (tile_data, is_gzip, "temp-pmtiles")
 
     async def _get_tile_from_pmtiles_path(
         self, pmtiles_path: Path, z: int, x: int, y: int

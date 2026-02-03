@@ -57,72 +57,10 @@ async def get_tile(
     cql_filter: CqlFilterDep = None,
     bbox: BBoxDep = None,
     limit: int = Query(default=None, ge=1, le=100000, description="Max features"),
-    temp: bool = Query(default=False, description="Serve from temp storage"),
-    workflow_id: str | None = Query(
-        default=None, description="Workflow ID for temp layers"
-    ),
-    node_id: str | None = Query(default=None, description="Node ID for temp layers"),
 ) -> Response:
     """Get a vector tile for the specified collection and tile coordinates."""
     request_id = str(uuid.uuid4())[:8]
     start_time = time.monotonic()
-
-    # Handle temp layer serving
-    if temp and workflow_id and node_id:
-        # Get user_id from auth header
-        from geoapi.deps.auth import get_optional_user_id
-
-        try:
-            user_id = await get_optional_user_id(request)
-            if not user_id:
-                raise HTTPException(
-                    status_code=401, detail="Authentication required for temp layers"
-                )
-            user_id_str = str(user_id)
-        except Exception:
-            raise HTTPException(
-                status_code=401, detail="Authentication required for temp layers"
-            )
-
-        result = await tile_service.get_tile_from_temp_pmtiles(
-            user_id=user_id_str,
-            workflow_id=workflow_id,
-            node_id=node_id,
-            z=z,
-            x=x,
-            y=y,
-        )
-        elapsed_ms = (time.monotonic() - start_time) * 1000
-        if result is None:
-            return Response(
-                status_code=204,
-                headers={
-                    "X-Request-ID": request_id,
-                    "X-Response-Time": f"{elapsed_ms:.1f}ms",
-                },
-            )
-        tile_data, is_gzip, source = result
-        if not tile_data:
-            return Response(
-                status_code=204,
-                headers={
-                    "X-Request-ID": request_id,
-                    "X-Response-Time": f"{elapsed_ms:.1f}ms",
-                },
-            )
-        headers = {
-            "Cache-Control": "no-cache",  # Temp layers should not be cached
-            "X-Tile-Source": source,
-            "X-Request-ID": request_id,
-            "X-Response-Time": f"{elapsed_ms:.1f}ms",
-        }
-        if is_gzip:
-            headers["Content-Encoding"] = "gzip"
-        return Response(
-            content=tile_data,
-            media_type="application/vnd.mapbox-vector-tile",
-            headers=headers,
-        )
 
     # Ultra-fast path: Try PMTiles by layer_id without ANY database lookup
     # This completely bypasses DuckDB schema lookup for cached tile serving

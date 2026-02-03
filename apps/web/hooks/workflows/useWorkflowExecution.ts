@@ -50,6 +50,7 @@ interface NodeResult {
   layer_id?: string;
   status?: string;
   error?: string;
+  duration_ms?: number; // Execution duration in milliseconds
 }
 
 /**
@@ -92,9 +93,6 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     nodeExecutionInfo: {},
     tempLayerIds: {},
   });
-
-  // Polling interval ref
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
    * Check if workflow can be executed
@@ -310,24 +308,25 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
 
       console.log("[useWorkflowExecution] node_results:", results);
 
+      // Build execution info with timing from node_results
+      const finalExecutionInfo: Record<string, NodeExecutionInfo> = {};
+
       if (results) {
         Object.entries(results).forEach(([nodeId, result]) => {
           console.log(`[useWorkflowExecution] Node ${nodeId} result:`, result);
           if (result.temp_layer_id) {
             tempLayerIds[nodeId] = result.temp_layer_id;
           }
+          // Extract timing info from each node result
+          finalExecutionInfo[nodeId] = {
+            status: "completed",
+            durationMs: result.duration_ms,
+          };
         });
       }
 
       console.log("[useWorkflowExecution] Extracted tempLayerIds:", tempLayerIds);
-
-      if (results) {
-        Object.entries(results).forEach(([nodeId, result]) => {
-          if (result.temp_layer_id) {
-            tempLayerIds[nodeId] = result.temp_layer_id;
-          }
-        });
-      }
+      console.log("[useWorkflowExecution] Extracted executionInfo:", finalExecutionInfo);
 
       setState((s) => ({
         ...s,
@@ -336,6 +335,8 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
         nodeStatuses: Object.fromEntries(
           Object.entries(s.nodeStatuses).map(([id, _status]) => [id, "completed"])
         ),
+        // Set final execution info with timing from node_results
+        nodeExecutionInfo: finalExecutionInfo,
       }));
 
       // Remove from running jobs - use ref to get current value
@@ -359,27 +360,9 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs, state.jobId, dispatch, t]);
 
-  /**
-   * Start/stop polling based on execution state
-   */
-  useEffect(() => {
-    if (state.isExecuting && !pollIntervalRef.current) {
-      // Start polling every 2 seconds
-      pollIntervalRef.current = setInterval(() => {
-        mutateJobs();
-      }, 2000);
-    } else if (!state.isExecuting && pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [state.isExecuting, mutateJobs]);
+  // Note: No manual polling interval needed here.
+  // The useJobs hook already has built-in SWR refreshInterval
+  // that polls every 2 seconds when there are active jobs.
 
   /**
    * Reset execution state

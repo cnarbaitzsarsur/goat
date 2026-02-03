@@ -134,8 +134,8 @@ class TempLayerWriter:
 
     @property
     def pmtiles_path(self) -> Path:
-        """Path to the PMTiles file."""
-        return self.base_path / "tiles.pmtiles"
+        """Path to the PMTiles file (named by layer UUID for lookup)."""
+        return self.base_path / f"t_{self.temp_file_id}.pmtiles"
 
     @property
     def metadata_path(self) -> Path:
@@ -332,24 +332,41 @@ class TempLayerWriter:
 
             parquet_path_str = str(self.parquet_path)
 
-            # Get geometry column
+            # Get columns and filter out unsupported types for GeoJSON export
             cols = con.execute(
                 f"DESCRIBE SELECT * FROM read_parquet('{parquet_path_str}')"
             ).fetchall()
+
             geom_col = None
+            exportable_cols = []
+            # Types that GDAL/OGR can't export to GeoJSON
+            unsupported_prefixes = ("STRUCT", "MAP", "UNION")
+
             for col_name, col_type, *_ in cols:
-                if "GEOMETRY" in col_type.upper():
+                col_type_upper = col_type.upper()
+                if "GEOMETRY" in col_type_upper:
                     geom_col = col_name
-                    break
+                    exportable_cols.append(col_name)
+                elif not any(
+                    col_type_upper.startswith(p) for p in unsupported_prefixes
+                ):
+                    exportable_cols.append(col_name)
+                else:
+                    logger.debug(
+                        f"Excluding column '{col_name}' ({col_type}) from GeoJSON export"
+                    )
 
             if not geom_col:
                 logger.warning("No geometry column found, skipping PMTiles generation")
                 return None
 
+            # Build column list for export (excluding unsupported types)
+            col_list = ", ".join(f'"{c}"' for c in exportable_cols)
+
             # Export to GeoJSON using DuckDB
             con.execute(f"""
                 COPY (
-                    SELECT * FROM read_parquet('{parquet_path_str}')
+                    SELECT {col_list} FROM read_parquet('{parquet_path_str}')
                 ) TO '{geojson_path}'
                 WITH (FORMAT GDAL, DRIVER 'GeoJSON')
             """)

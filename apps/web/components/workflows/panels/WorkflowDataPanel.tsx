@@ -37,7 +37,7 @@ import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 import { useDataset, useDatasetCollectionItems } from "@/lib/api/layers";
 import { getExtent } from "@/lib/api/processes";
 import { useTempLayerFeatures } from "@/lib/api/workflows";
-import { MAPTILER_KEY } from "@/lib/constants";
+import { GEOAPI_BASE_URL, MAPTILER_KEY } from "@/lib/constants";
 import { DrawProvider } from "@/lib/providers/DrawProvider";
 import type { AppDispatch } from "@/lib/store";
 import { selectRequestMapView, selectRequestTableView } from "@/lib/store/workflow/selectors";
@@ -380,16 +380,26 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
     dataQueryParams
   );
 
-  // Parse temp layer ID to extract the layer UUID
-  // Format: "workflow_id:node_id:layer_uuid" - we only need the layer_uuid
-  const tempLayerUuid = useMemo(() => {
-    if (!tempLayerId) return undefined;
+  // Parse temp layer ID to extract components
+  // Format: "workflow_id:node_id:layer_uuid"
+  const tempLayerParts = useMemo(() => {
+    if (!tempLayerId) return { workflowId: undefined, nodeId: undefined, layerUuid: undefined };
     const parts = tempLayerId.split(":");
-    // layer_uuid is the last part (3rd element for new format)
-    return parts.length === 3 ? parts[2] : undefined;
+    if (parts.length === 3) {
+      return { workflowId: parts[0], nodeId: parts[1], layerUuid: parts[2] };
+    }
+    return { workflowId: undefined, nodeId: undefined, layerUuid: undefined };
   }, [tempLayerId]);
 
-  // Temp layer data (from temp storage)
+  const { layerUuid: tempLayerUuid } = tempLayerParts;
+
+  // Build vector tile URL for temp layer map (same as regular layers, just use layer UUID)
+  const tempTileUrl = useMemo(() => {
+    if (!tempLayerUuid) return null;
+    return `${GEOAPI_BASE_URL}/collections/${tempLayerUuid}/tiles/WebMercatorQuad/{z}/{x}/{y}`;
+  }, [tempLayerUuid]);
+
+  // Temp layer data (from temp storage) - only for table pagination
   // Use the layer UUID as the collection ID, just add temp=true
   const { data: tempTableData } = useTempLayerFeatures(isTempLayer ? tempLayerUuid : undefined, {
     limit: dataQueryParams.limit,
@@ -438,7 +448,7 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
       const geojson = wktToGeoJSON(layer.extent || globalExtent);
       return bbox(geojson) as [number, number, number, number];
     }
-    // For temp layers, compute bounds from the GeoJSON features
+    // For temp layers, compute bounds from available features (for initial view)
     if (isTempLayer && tempTableData && hasGeometry) {
       const featureCollection = {
         type: "FeatureCollection" as const,
@@ -804,8 +814,8 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
                 </DrawProvider>
               </MapContainer>
             )}
-            {/* Temp layer map - uses simple GeoJSON rendering */}
-            {hasGeometry && isTempLayer && tempTableData && mapBounds && (
+            {/* Temp layer map - uses vector tiles for performance */}
+            {hasGeometry && isTempLayer && tempTileUrl && mapBounds && (
               <MapContainer>
                 <Map
                   ref={mapRef}
@@ -817,17 +827,12 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
                   dragRotate={false}
                   touchZoomRotate={false}
                   style={{ width: "100%", height: "100%" }}>
-                  <Source
-                    id="temp-layer-source"
-                    type="geojson"
-                    data={{
-                      type: "FeatureCollection",
-                      features: tempTableData.features as GeoJSON.Feature[],
-                    }}>
+                  <Source id="temp-layer-source" type="vector" tiles={[tempTileUrl]} maxzoom={14}>
                     {/* Polygon fill layer */}
                     <MapLayer
                       id="temp-layer-fill"
                       type="fill"
+                      source-layer="default"
                       filter={["==", ["geometry-type"], "Polygon"]}
                       paint={{
                         "fill-color": theme.palette.primary.main,
@@ -838,6 +843,7 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
                     <MapLayer
                       id="temp-layer-outline"
                       type="line"
+                      source-layer="default"
                       filter={[
                         "any",
                         ["==", ["geometry-type"], "Polygon"],
@@ -852,6 +858,7 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
                     <MapLayer
                       id="temp-layer-points"
                       type="circle"
+                      source-layer="default"
                       filter={["==", ["geometry-type"], "Point"]}
                       paint={{
                         "circle-radius": 6,

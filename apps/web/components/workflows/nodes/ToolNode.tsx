@@ -49,20 +49,19 @@ import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext
 
 /**
  * Format duration in milliseconds to human-readable string
- * e.g., 1234 -> "1.2s", 65000 -> "1m 5s"
+ * e.g., 1234 -> "1.2s", 65000 -> "1m 5.0s"
  */
 const formatDuration = (ms: number): string => {
   if (ms < 1000) {
     return `${ms}ms`;
   }
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) {
-    const decimal = Math.floor((ms % 1000) / 100);
-    return decimal > 0 ? `${seconds}.${decimal}s` : `${seconds}s`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`;
   }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}m ${remainingSeconds.toFixed(1)}s`;
 };
 
 // Keyframe animation for border angle (animates CSS custom property)
@@ -295,12 +294,12 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
 
   // Debug logging for execution status
   console.log(
-    `[ToolNode ${id}] isExecuting:`,
-    isExecuting,
-    "nodeStatus:",
+    `[ToolNode ${id}] nodeStatus:`,
     nodeStatus,
-    "hasTempResult:",
-    hasTempResult
+    "executionInfo:",
+    executionInfo,
+    "durationMs:",
+    executionInfo?.durationMs
   );
 
   // Saving state
@@ -741,13 +740,14 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
             <Chip
               label={formatDuration(executionInfo.durationMs)}
               size="small"
-              color="success"
+              color="primary"
               sx={{
                 height: 20,
                 fontSize: "0.7rem",
                 fontWeight: "bold",
+                ml: 1,
                 "& .MuiChip-label": {
-                  px: 0.75,
+                  px: 1,
                 },
               }}
             />

@@ -189,11 +189,8 @@ def run_tool_node(
     node_id: str,
     process_id: str,
     inputs: dict[str, Any],
-) -> dict[str, Any]:
-    """Execute a single tool node and track progress via flow_user_state.
-
-    Uses wmill.set_flow_user_state() to update node status so the frontend
-    can track which nodes are running/completed.
+) -> tuple[str, dict[str, Any]]:
+    """Execute a single tool node and return job info.
 
     Args:
         node_id: The workflow node ID
@@ -201,7 +198,7 @@ def run_tool_node(
         inputs: Tool parameters including temp_mode context
 
     Returns:
-        Tool execution result
+        Tuple of (job_id, result_dict)
     """
     import time
 
@@ -213,18 +210,7 @@ def run_tool_node(
     # Record start time
     start_time = time.time()
 
-    # Update flow state to mark this node as running with start time
-    try:
-        current_state = wmill.get_flow_user_state("node_status") or {}
-    except Exception:
-        current_state = {}
-    current_state[node_id] = {
-        "status": "running",
-        "started_at": start_time,
-    }
-    wmill.set_flow_user_state("node_status", current_state)
-
-    # Create async job and poll for result
+    # Create async job - this sets parent_job automatically
     job_id = wmill.run_script_async(script_path, args=inputs)
     print(f"[{node_id}] Created job: {job_id}")
 
@@ -245,14 +231,30 @@ def run_tool_node(
             if status == "COMPLETED":
                 result = wmill.get_result(job_id)
                 elapsed = time.time() - start_time
+                duration_ms = int(elapsed * 1000)
+
+                # Check if the result contains an error (job failed)
+                if isinstance(result, dict) and "error" in result:
+                    error_info = result["error"]
+                    error_msg = (
+                        error_info.get("message", str(error_info))
+                        if isinstance(error_info, dict)
+                        else str(error_info)
+                    )
+                    print(f"[{node_id}] Failed in {elapsed:.1f}s: {error_msg}")
+                    # Return error result with timing and job_id
+                    return job_id, {
+                        "node_id": node_id,
+                        "process_id": process_id,
+                        "job_id": job_id,
+                        "error": error_info,
+                        "duration_ms": duration_ms,
+                    }
+
                 print(f"[{node_id}] Completed in {elapsed:.1f}s")
-                # Update flow state to mark this node as completed with duration
-                current_state[node_id] = {
-                    "status": "completed",
-                    "started_at": start_time,
-                    "duration_ms": int(elapsed * 1000),
-                }
-                wmill.set_flow_user_state("node_status", current_state)
+                # Store duration and job_id in result
+                result["duration_ms"] = duration_ms
+                result["job_id"] = job_id
                 break
             elif status in ("CANCELED", "CANCELLED_BY_TIMEOUT"):
                 raise RuntimeError(f"Job {job_id} was cancelled")
@@ -261,19 +263,12 @@ def run_tool_node(
 
     except Exception as e:
         print(f"[{node_id}] Error: {e}")
-        elapsed = time.time() - start_time
-        # Mark as failed in flow state
-        current_state[node_id] = {
-            "status": "failed",
-            "started_at": start_time,
-            "duration_ms": int(elapsed * 1000),
-        }
-        wmill.set_flow_user_state("node_status", current_state)
         raise
 
-    return {
+    return job_id, {
         "node_id": node_id,
         "process_id": process_id,
+        "job_id": job_id,
         **result,
     }
 
@@ -334,12 +329,14 @@ def main(
     sorted_nodes = topological_sort(nodes, edges)
     print(f"[workflow_runner] Sorted {len(sorted_nodes)} nodes")
 
-    # Track results per node
+    # Track results per node and node→job mapping
     results: dict[str, dict] = {}
+    node_jobs: dict[str, str] = {}  # node_id → child job_id
     errors: list[dict] = []
 
-    # Execute each tool node as a uniquely-named Windmill workflow task
-    # This provides workflow_as_code_status tracking with "run_tool_{node_id}"
+    # Execute each tool node
+    # Child jobs have parent_job set automatically, so backend can query
+    # Windmill for jobs with parent_job={this_job_id} to track progress
     for node in sorted_nodes:
         node_type = node.get("data", {}).get("type")
 
@@ -361,9 +358,24 @@ def main(
             inputs = build_tool_inputs(node, edges, nodes, results, params)
             print(f"[workflow_runner] Inputs built for {node_id}")
 
-            # Execute the tool and track progress via flow_user_state
-            result = run_tool_node(node_id, process_id, inputs)
+            # Execute the tool - returns (job_id, result)
+            job_id, result = run_tool_node(node_id, process_id, inputs)
+
+            # Track the node→job mapping
+            node_jobs[node_id] = job_id
             results[node_id] = result
+
+            # Check if node failed (result contains error)
+            if "error" in result:
+                print(f"[workflow_runner] Node {node_id} failed: {result.get('error')}")
+                errors.append(
+                    {
+                        "node_id": node_id,
+                        "error": result.get("error"),
+                    }
+                )
+                # Stop execution on error - downstream nodes depend on this
+                break
 
             print(
                 f"[workflow_runner] Node {node_id} completed: {result.get('temp_layer_id')}"
@@ -385,8 +397,25 @@ def main(
         f"[workflow_runner] Workflow complete: {len(results)} results, {len(errors)} errors"
     )
 
-    return WorkflowResult(
+    result = WorkflowResult(
         status="success" if not errors else "partial",
         node_results=results,
         errors=errors,
     ).model_dump()
+
+    # Add node_jobs mapping to result for final reference
+    result["node_jobs"] = node_jobs
+
+    # If there were errors, raise to mark job as failed in Windmill
+    if errors:
+        # Build error message from first error
+        first_error = errors[0]
+        error_info = first_error.get("error", {})
+        if isinstance(error_info, dict):
+            error_msg = error_info.get("message", str(error_info))
+        else:
+            error_msg = str(error_info)
+        node_id = first_error.get("node_id", "unknown")
+        raise RuntimeError(f"Node {node_id} failed: {error_msg}")
+
+    return result

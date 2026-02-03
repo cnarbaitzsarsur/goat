@@ -1,12 +1,10 @@
 import logging
 from enum import StrEnum
-from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field
 
 from goatlib.analysis.schemas.ui import (
     ui_field,
-    ui_sections,
 )
 
 logger = logging.getLogger(__name__)
@@ -17,6 +15,7 @@ class ClusterType(StrEnum):
 
     kmean = "kmean"
     equal_size = "equal_size"
+
 
 ClusterType_LABELS: dict[str, str] = {
     "kmean": "cluster_type.kmean",
@@ -31,9 +30,7 @@ class ClusteringParams(BaseModel):
         default=ClusterType.kmean,
         description="clustering_zones",
         json_schema_extra=ui_field(
-            section="configuration",
-            field_order=1,
-            enum_labels=ClusterType_LABELS
+            section="configuration", field_order=1, enum_labels=ClusterType_LABELS
         ),
     )
 
@@ -48,8 +45,7 @@ class ClusteringParams(BaseModel):
     )
     nb_cluster: int = Field(
         ...,
-        description="Number of clusters "
-        "It should be an integer ",
+        description="Number of clusters " "It should be an integer ",
         json_schema_extra=ui_field(
             section="input",
             field_order=2,
