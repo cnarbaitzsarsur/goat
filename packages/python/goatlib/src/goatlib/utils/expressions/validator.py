@@ -443,7 +443,7 @@ class ExpressionValidator:
         return None
 
     def _levenshtein_distance(self, s1: str, s2: str) -> int:
-        """Calculate Levenshtein edit distance between two strings."""
+        """Calculate Levenshtein edit distance between two strings. This can be refactored"""
         if len(s1) < len(s2):
             return self._levenshtein_distance(s2, s1)
 
