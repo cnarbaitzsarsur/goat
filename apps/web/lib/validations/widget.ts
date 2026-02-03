@@ -35,6 +35,10 @@ export const formatNumberTypes = z.enum([
   "percent_2d", // 1.00%
 ]);
 
+// How chart widgets respond to cross-filter selections
+export const selectionResponseTypes = z.enum(["filter", "highlight"]);
+export type SelectionResponseType = z.infer<typeof selectionResponseTypes>;
+
 const chartConfigSetupBaseSchema = z.object({
   title: z.string().optional().default("Chart"),
   layer_project_id: z.number().optional(),
@@ -99,6 +103,13 @@ export const numbersDataConfigSchema = dataConfigSchema.extend({
 });
 
 export const filterLayoutTypes = z.enum(["checkbox", "cards", "chips", "select", "range"]);
+
+// Target layer schema for multi-layer attribute filtering
+export const filterTargetLayerSchema = z.object({
+  layer_project_id: z.number(),
+  column_name: z.string(),
+});
+
 export const filterDataConfigSchema = dataConfigSchema.extend({
   type: z.literal("filter"),
   setup: chartConfigSetupBaseSchema
@@ -107,13 +118,27 @@ export const filterDataConfigSchema = dataConfigSchema.extend({
       column_name: z.string().optional(),
       placeholder: z.string().optional(),
       multiple: z.boolean().optional().default(false),
+      // Chips/Checkbox-specific settings
+      min_visible_options: z.number().min(1).max(20).optional().default(5),
+      wrap: z.boolean().optional().default(true),
+      default_value: z.array(z.string()).optional(),
+      custom_order: z.array(z.string()).optional(), // Custom chip order (values in desired order)
+      // Range-specific settings
+      show_histogram: z.boolean().optional().default(true),
+      steps: z.number().min(1).max(100).optional().default(50),
+      show_slider: z.boolean().optional().default(true),
     })
     .default({}),
   options: dataConfigOptionsBaseSchema
     .extend({
       description: z.string().optional(),
-      cross_filter: z.boolean().optional().default(false),
       zoom_to_selection: z.boolean().optional().default(true),
+      // Color settings (for chips, checkbox, range layouts)
+      color: z.string().optional().default("#0e58ff"),
+      // Multi-layer attribute filtering
+      target_layers: z.array(filterTargetLayerSchema).optional(),
+      // Cross-filter options: when enabled, filter shows only values that exist in currently filtered data
+      cross_filter_options: z.boolean().optional().default(true),
     })
     .default({}),
 });
@@ -130,6 +155,14 @@ export const chartsConfigBaseSchema = z.object({
   options: chartConfigOptionsBaseSchema.optional().default({}),
 });
 
+// Context label configuration for showing dynamic labels based on filtered data
+export const contextLabelSchema = z.object({
+  // Field to check for unique value (e.g., "city_name")
+  field: z.string(),
+  // Value to show when multiple unique values exist (e.g., "All Cities"). If empty, nothing is shown.
+  default_value: z.string().optional(),
+});
+
 export const histogramChartConfigSchema = chartsConfigBaseSchema.extend({
   type: z.literal("histogram_chart"),
   setup: chartConfigSetupBaseSchema
@@ -144,8 +177,14 @@ export const histogramChartConfigSchema = chartsConfigBaseSchema.extend({
       max_value: z.number().optional(),
       include_outliers: z.boolean().optional().default(false),
       format: formatNumberTypes.optional().default("none"),
+      // Base color for bars
       color: z.string().optional().default("#0e58ff"),
-      highlight_color: z.string().optional().default("#f5b704"),
+      // Color when hovering over a bar
+      highlight_color: z.string().optional().default("#3b82f6"),
+      // Color for selected/filtered portion (only used in highlight mode)
+      selected_color: z.string().optional().default("#f5b704"),
+      // How to respond to cross-filter selections: filter data or highlight selected portion
+      selection_response: selectionResponseTypes.optional().default("filter"),
     })
     .default({}),
 });
@@ -157,16 +196,26 @@ export const categoriesChartConfigSchema = chartsConfigBaseSchema.extend({
       operation_type: statisticOperationEnum.optional(),
       operation_value: z.string().optional(),
       group_by_column_name: z.string().optional(),
+      custom_order: z.array(z.string()).optional(), // Custom category order
     })
     .default({}),
   options: chartConfigOptionsBaseSchema
     .extend({
       format: formatNumberTypes.optional().default("none"),
       sorting: sortTypes.optional().default("asc"),
-      color: z.string().optional().default("#0e58ff"),
+      // Color range for generating bar colors (like pie chart)
+      color_range: colorRange.optional().default(DEFAULT_COLOR_RANGE),
+      // Custom color mapping: array of [category_value, hex_color] tuples
+      color_map: z.array(z.tuple([z.string(), z.string()])).optional(),
+      // Color for selected/filtered portion (only used in highlight mode)
+      selected_color: z.string().optional().default("#f5b704"),
+      // How to respond to cross-filter selections: filter data or highlight selected portion
+      selection_response: selectionResponseTypes.optional().default("filter"),
       width: z.number().min(3).max(15).optional().default(5),
       num_categories: z.number().min(1).max(15).optional().default(1),
       show_other_aggregate: z.boolean().optional().default(false),
+      // Dynamic context label based on filtered data
+      context_label: contextLabelSchema.optional(),
     })
     .default({}),
 });
@@ -178,6 +227,7 @@ export const pieChartConfigSchema = chartsConfigBaseSchema.extend({
       operation_type: statisticOperationEnum.optional(),
       operation_value: z.string().optional(),
       group_by_column_name: z.string().optional(),
+      custom_order: z.array(z.string()).optional(), // Custom category order
     })
     .default({}),
   options: chartConfigOptionsBaseSchema
@@ -185,6 +235,11 @@ export const pieChartConfigSchema = chartsConfigBaseSchema.extend({
       num_categories: z.number().min(1).max(15).optional().default(1),
       cap_others: z.boolean().optional().default(false),
       color_range: colorRange.optional().default(DEFAULT_COLOR_RANGE),
+      // Custom color mapping: array of [category_value, hex_color] tuples
+      color_map: z.array(z.tuple([z.string(), z.string()])).optional(),
+      sorting: sortTypes.optional().default("desc"),
+      // Dynamic context label based on filtered data
+      context_label: contextLabelSchema.optional(),
     })
     .default({}),
 });

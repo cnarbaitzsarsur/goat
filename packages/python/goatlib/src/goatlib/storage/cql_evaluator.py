@@ -93,10 +93,10 @@ class DuckDBCQLEvaluator(Evaluator):
 
     @handle(ast.Like)
     def like(self, node, lhs):
-        """Handle LIKE/ILIKE operator."""
+        """Handle LIKE operator (always case-insensitive with ILIKE)."""
         pattern = self._add_param(node.pattern)
-        op = "ILIKE" if node.nocase else "LIKE"
-        result = f"{lhs} {op} {pattern}"
+        # Always use ILIKE for case-insensitive matching (better UX)
+        result = f"{lhs} ILIKE {pattern}"
         return f"NOT ({result})" if node.not_ else result
 
     @handle(ast.In)

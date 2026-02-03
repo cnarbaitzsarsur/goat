@@ -39,6 +39,7 @@ class StatisticsOperation(StrEnum):
     mean = "mean"
     min = "min"
     max = "max"
+    expression = "expression"
 
 
 # Input models
@@ -149,18 +150,20 @@ class ExtentResult(BaseModel):
     )
     feature_count: int = Field(0, description="Number of features in the extent")
 
+
 # Aggregation Stats models
+
 
 class AggregationStatsInput(BaseModel):
     """Input for aggregation statistics operation."""
 
     operation: StatisticsOperation = Field(
         default=StatisticsOperation.count,
-        description="Statistical operation to perform",
+        description="Statistical operation to perform (count, sum, mean, min, max, expression)",
     )
     operation_column: str | None = Field(
         default=None,
-        description="Column to perform the operation on (required for sum, mean, min, max)",
+        description="Column to perform the operation on (required for sum, mean, min, max). For expression operation, this contains the SQL expression.",
     )
     group_by_column: str | None = Field(
         default=None, description="Column to group results by"

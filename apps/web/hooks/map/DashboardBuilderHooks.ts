@@ -16,7 +16,7 @@ interface UseLayerFiltersParams {
 
 /**
  * Returns a combined CQL filter from temporary filters in the store,
- * merging per-layer and spatial cross-filters for the specified layer.
+ * merging per-layer filters and additional target filters for the specified layer.
  */
 function useTemporaryFilters({ layerId }: UseLayerFiltersParams) {
   const { temporaryFilters } = useAppSelector((state) => state.map);
@@ -24,13 +24,16 @@ function useTemporaryFilters({ layerId }: UseLayerFiltersParams) {
   return useMemo(() => {
     if (!layerId) return undefined;
 
-    const nonCross = temporaryFilters.filter((f) => f.layer_id === layerId).map((f) => f.filter);
+    // Primary filters for this layer
+    const primaryFilters = temporaryFilters.filter((f) => f.layer_id === layerId).map((f) => f.filter);
 
-    const spatialCross = temporaryFilters
-      .filter((f) => f.layer_id !== layerId && f.spatial_cross_filter)
-      .map((f) => f.spatial_cross_filter as any);
+    // Additional target filters from multi-layer attribute filtering
+    const additionalTargetFilters = temporaryFilters
+      .flatMap((f) => f.additional_targets || [])
+      .filter((t) => t.layer_id === layerId)
+      .map((t) => t.filter);
 
-    const filters = [...nonCross, ...spatialCross];
+    const filters = [...primaryFilters, ...additionalTargetFilters];
     if (!filters.length) return undefined;
 
     return { op: "and", args: filters };
@@ -40,8 +43,11 @@ function useTemporaryFilters({ layerId }: UseLayerFiltersParams) {
 interface ChartWidgetResult<TConfig, TQueryParams> {
   config?: TConfig;
   queryParams?: TQueryParams;
+  baseQueryParams?: TQueryParams; // Query params without cross_filter (for highlight mode)
   projectId: string;
   layerId?: string; // The layer UUID for API calls
+  layerProjectId?: number; // The layer_project_id from config
+  hasActiveFilters?: boolean; // Whether there are cross-filters currently applied
 }
 
 /**
@@ -69,57 +75,87 @@ export function useChartWidget<TConfig, TQueryParams>(
     return result.success ? result.data : undefined;
   }, [rawConfig, configSchema]);
 
-  // Get the layer_id (UUID) from layer_project_id
-  const layerId = useMemo(() => {
+  // Get the layer from layer_project_id
+  const layer = useMemo(() => {
     const layerProjectId = (config as any)?.setup?.layer_project_id;
     if (!layerProjectId || !layers) return undefined;
-    const layer = layers.find((l) => l.id === layerProjectId);
-    return layer?.layer_id;
+    return layers.find((l) => l.id === layerProjectId);
   }, [config, layers]);
+
+  // Get the layer_id (UUID) from layer
+  const layerId = layer?.layer_id;
+
+  // Get the layer's base filter (set in layer project configuration)
+  const layerBaseFilter = useMemo(() => {
+    return layer?.query?.cql as Record<string, unknown> | undefined;
+  }, [layer?.query?.cql]);
 
   // Get temporary filters for this layer
   const tempFilters = useTemporaryFilters({ layerId: (config as any)?.setup?.layer_project_id });
+  const hasActiveFilters = !!tempFilters;
 
-  const buildQuery = useCallback((): any | undefined => {
-    if (!config) return;
+  // Build query with cross_filter applied (for filtered view)
+  const buildQuery = useCallback(
+    (applyCrossFilter: boolean): any | undefined => {
+      if (!config) return;
 
-    const base = { ...(config as any).setup, ...(config as any).options };
-    const parsed = querySchema.safeParse(base);
-    if (!parsed.success) return;
+      const base = { ...(config as any).setup, ...(config as any).options };
+      const parsed = querySchema.safeParse(base);
+      if (!parsed.success) return;
 
-    // Apply cross filters only when enabled
-    let cqlQuery;
-    if ((config as any).options?.cross_filter && tempFilters) {
-      cqlQuery = JSON.parse(JSON.stringify(tempFilters));
-    }
+      // Start with layer's base filter if it exists
+      let cqlQuery = layerBaseFilter ? JSON.parse(JSON.stringify(layerBaseFilter)) : undefined;
 
-    if ((config as any).options?.filter_by_viewport && map) {
-      const extentRaw = getMapExtentCQL(map);
-      if (extentRaw) {
-        const extent = JSON.parse(extentRaw);
-        if (cqlQuery && cqlQuery.args) {
-          cqlQuery.args.push(extent);
+      // Apply cross filters only when enabled and requested
+      if (applyCrossFilter && (config as any).options?.cross_filter && tempFilters) {
+        const crossFilter = JSON.parse(JSON.stringify(tempFilters));
+        if (cqlQuery) {
+          // Combine with existing filter using AND
+          cqlQuery = { op: "and", args: [cqlQuery, crossFilter] };
         } else {
-          cqlQuery = extent;
+          cqlQuery = crossFilter;
         }
       }
-    }
 
-    return cqlQuery ? { ...parsed.data, query: JSON.stringify(cqlQuery) } : (parsed.data as TQueryParams);
-  }, [config, map, querySchema, tempFilters]);
+      if ((config as any).options?.filter_by_viewport && map) {
+        const extentRaw = getMapExtentCQL(map);
+        if (extentRaw) {
+          const extent = JSON.parse(extentRaw);
+          if (cqlQuery) {
+            // Combine with existing filter using AND
+            if (cqlQuery.op === "and" && cqlQuery.args) {
+              cqlQuery.args.push(extent);
+            } else {
+              cqlQuery = { op: "and", args: [cqlQuery, extent] };
+            }
+          } else {
+            cqlQuery = extent;
+          }
+        }
+      }
 
-  const [queryParams, setQueryParams] = useState<TQueryParams | undefined>(() => buildQuery());
+      return cqlQuery ? { ...parsed.data, query: JSON.stringify(cqlQuery) } : (parsed.data as TQueryParams);
+    },
+    [config, map, querySchema, tempFilters, layerBaseFilter]
+  );
+
+  const [queryParams, setQueryParams] = useState<TQueryParams | undefined>(() => buildQuery(true));
+  const [baseQueryParams, setBaseQueryParams] = useState<TQueryParams | undefined>(() => buildQuery(false));
 
   // Update on config, filters, or map load
   useEffect(() => {
-    setQueryParams(buildQuery());
+    setQueryParams(buildQuery(true));
+    setBaseQueryParams(buildQuery(false));
   }, [buildQuery]);
 
   // Update viewport filter on map moves
   useEffect(() => {
     if (!map || !(config as any)?.options?.filter_by_viewport) return;
 
-    const onMoveEnd = () => setQueryParams(buildQuery());
+    const onMoveEnd = () => {
+      setQueryParams(buildQuery(true));
+      setBaseQueryParams(buildQuery(false));
+    };
 
     map.on("moveend", onMoveEnd);
     return () => {
@@ -127,5 +163,7 @@ export function useChartWidget<TConfig, TQueryParams>(
     };
   }, [map, config, buildQuery]);
 
-  return { config, queryParams, projectId, layerId };
+  const layerProjectId = (config as any)?.setup?.layer_project_id as number | undefined;
+
+  return { config, queryParams, baseQueryParams, projectId, layerId, layerProjectId, hasActiveFilters };
 }

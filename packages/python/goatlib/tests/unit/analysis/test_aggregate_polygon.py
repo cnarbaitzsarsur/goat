@@ -11,7 +11,6 @@ from pathlib import Path
 
 import duckdb
 import pytest
-
 from goatlib.analysis.geoanalysis.aggregate_polygon import AggregatePolygonTool
 from goatlib.analysis.schemas.aggregate import (
     AggregatePolygonParams,
@@ -21,7 +20,6 @@ from goatlib.analysis.schemas.base import (
     FieldStatistic,
     StatisticOperation,
 )
-
 
 # Test data paths - same data as GOAT Core
 TEST_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "analysis" / "aggregate"

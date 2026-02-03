@@ -8,9 +8,9 @@ Tests the layer export functionality including:
 - Column filtering (excluding unsupported types)
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 from goatlib.tools.layer_export import (
     FORMAT_MAP,
     LayerExportOutput,
@@ -247,17 +247,28 @@ class TestLayerExportRunner:
 
     def test_get_table_name_own_layer(self, runner):
         """Test table name for own layer."""
-        with patch.object(runner, "get_layer_owner_id_sync", return_value="00000000-0000-0000-0000-000000000001"):
+        with patch.object(
+            runner,
+            "get_layer_owner_id_sync",
+            return_value="00000000-0000-0000-0000-000000000001",
+        ):
             table_name = runner._get_table_name(
                 "00000000-0000-0000-0000-000000000002",
                 "00000000-0000-0000-0000-000000000001",
             )
-            assert table_name == "lake.user_00000000000000000000000000000001.t_00000000000000000000000000000002"
+            assert (
+                table_name
+                == "lake.user_00000000000000000000000000000001.t_00000000000000000000000000000002"
+            )
 
     def test_get_table_name_shared_layer(self, runner):
         """Test table name for shared layer (owner differs from user)."""
         # Layer is owned by user 99, not user 01
-        with patch.object(runner, "get_layer_owner_id_sync", return_value="00000000-0000-0000-0000-000000000099"):
+        with patch.object(
+            runner,
+            "get_layer_owner_id_sync",
+            return_value="00000000-0000-0000-0000-000000000099",
+        ):
             table_name = runner._get_table_name(
                 "00000000-0000-0000-0000-000000000002",
                 "00000000-0000-0000-0000-000000000001",  # Requesting user
@@ -338,7 +349,9 @@ class TestLayerExportRunner:
     def test_convert_cql2_to_sql_dict(self, runner):
         """Test CQL2 dict conversion."""
         runner._duckdb_con.execute.return_value.fetchall.return_value = [
-            ("status",), ("name",), ("geometry",)
+            ("status",),
+            ("name",),
+            ("geometry",),
         ]
 
         cql2_filter = {
@@ -372,11 +385,14 @@ class TestLayerExportCRS:
         ]
         runner._duckdb_con.execute.return_value.fetchone.return_value = ("geometry",)
 
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -395,11 +411,14 @@ class TestLayerExportCRS:
 
     def test_export_no_transform_without_crs(self, runner):
         """Test that no transformation happens when CRS is None."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -415,11 +434,14 @@ class TestLayerExportCRS:
 
     def test_csv_export_transforms_to_wkt(self, runner):
         """Test CSV export converts geometry to WKT."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -436,11 +458,14 @@ class TestLayerExportCRS:
 
     def test_csv_export_with_crs_transforms_then_wkt(self, runner):
         """Test CSV export with CRS transforms first, then converts to WKT."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -471,11 +496,14 @@ class TestLayerExportFormats:
 
     def test_parquet_uses_native_format(self, runner):
         """Test Parquet export uses native DuckDB format."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -489,11 +517,14 @@ class TestLayerExportFormats:
 
     def test_gpkg_uses_gdal_driver(self, runner):
         """Test GeoPackage export uses GDAL driver."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -508,11 +539,14 @@ class TestLayerExportFormats:
 
     def test_xlsx_uses_gdal_driver(self, runner):
         """Test XLSX export uses GDAL driver with WKT geometry."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "geometry"]), \
-             patch.object(runner, "_has_geometry_column", return_value=True), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "geometry"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=True),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",
@@ -528,11 +562,14 @@ class TestLayerExportFormats:
 
     def test_non_spatial_falls_back_to_csv(self, runner):
         """Test non-spatial table export falls back to CSV."""
-        with patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"), \
-             patch.object(runner, "_get_exportable_columns", return_value=["id", "name"]), \
-             patch.object(runner, "_has_geometry_column", return_value=False), \
-             patch.object(runner, "_convert_cql2_to_sql", return_value=None):
-
+        with (
+            patch.object(runner, "_get_table_name", return_value="lake.user_xxx.t_yyy"),
+            patch.object(
+                runner, "_get_exportable_columns", return_value=["id", "name"]
+            ),
+            patch.object(runner, "_has_geometry_column", return_value=False),
+            patch.object(runner, "_convert_cql2_to_sql", return_value=None),
+        ):
             runner._export_to_file(
                 layer_id="xxx",
                 user_id="yyy",

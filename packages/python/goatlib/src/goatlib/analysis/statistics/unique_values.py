@@ -55,8 +55,9 @@ def calculate_unique_values(
     """
 
     # Get unique values with counts
+    # Cast value to VARCHAR for consistent string formatting with aggregation_stats
     data_query = f"""
-        SELECT {attr_col} AS value, COUNT(*) AS cnt
+        SELECT CAST({attr_col} AS VARCHAR) AS value, COUNT(*) AS cnt
         FROM {table_name}
         WHERE {full_where}
         GROUP BY {attr_col}

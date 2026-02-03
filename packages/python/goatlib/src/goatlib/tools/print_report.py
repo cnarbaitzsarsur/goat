@@ -343,7 +343,9 @@ class PrintReportRunner(SimpleToolRunner):
                     png_bytes = await paper_locator.screenshot(type="png")
                 else:
                     # Fallback to full page
-                    logger.warning("Print paper element not found, using full page screenshot")
+                    logger.warning(
+                        "Print paper element not found, using full page screenshot"
+                    )
                     png_bytes = await page.screenshot(type="png", full_page=False)
                 return png_bytes
 

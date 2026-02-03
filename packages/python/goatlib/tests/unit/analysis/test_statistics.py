@@ -390,7 +390,7 @@ class TestAreaStatistics:
 
 class TestExtent:
     """Tests for calculate_extent function.
-    
+
     Note: These tests use geometries without explicit SRID, so the ST_Transform
     in calculate_extent will treat them as WGS84. For production use, geometries
     should have proper SRID set.
@@ -425,10 +425,15 @@ class TestExtent:
         return con
 
     def _calculate_extent_no_transform(
-        self, con, table_name, geometry_column="geometry", where_clause="TRUE", params=None
+        self,
+        con,
+        table_name,
+        geometry_column="geometry",
+        where_clause="TRUE",
+        params=None,
     ):
         """Calculate extent without CRS transform (for unit testing).
-        
+
         Uses ST_Extent_Agg which is the correct aggregate function in DuckDB spatial.
         """
         query = f"""
@@ -451,15 +456,18 @@ class TestExtent:
 
         if not result or result[4] == 0:
             from goatlib.analysis.statistics import ExtentResult
+
             return ExtentResult(bbox=None, feature_count=0)
 
         minx, miny, maxx, maxy, feature_count = result
 
         if minx is None or miny is None or maxx is None or maxy is None:
             from goatlib.analysis.statistics import ExtentResult
+
             return ExtentResult(bbox=None, feature_count=feature_count)
 
         from goatlib.analysis.statistics import ExtentResult
+
         return ExtentResult(
             bbox=[float(minx), float(miny), float(maxx), float(maxy)],
             feature_count=feature_count,
@@ -792,6 +800,38 @@ class TestAggregationStats:
                 # Missing operation_column
             )
         assert "operation_column is required" in str(exc_info.value)
+
+    def test_expression_operation(self, sample_data_table):
+        """Test aggregation with expression operation."""
+        result = calculate_aggregation_stats(
+            sample_data_table,
+            "test_data",
+            operation=StatisticsOperation.expression,
+            operation_column='SUM("value") / COUNT(*)',
+        )
+
+        # Should return a single result with the expression value
+        assert len(result.items) == 1
+        assert result.items[0].grouped_value is None
+        # Average of 10 values: (10+20+30+40+50+60+70+80+90+100) / 10 = 55
+        assert result.items[0].operation_value == 55.0
+        assert result.total_count == 10
+
+    def test_expression_operation_grouped(self, sample_data_table):
+        """Test aggregation with expression operation and grouping."""
+        result = calculate_aggregation_stats(
+            sample_data_table,
+            "test_data",
+            operation=StatisticsOperation.expression,
+            operation_column='SUM("value")',
+            group_by_column="category",
+        )
+
+        # Should return grouped results
+        assert len(result.items) > 0
+        # Each item should have a grouped_value
+        for item in result.items:
+            assert item.grouped_value is not None
 
 
 class TestHistogram:

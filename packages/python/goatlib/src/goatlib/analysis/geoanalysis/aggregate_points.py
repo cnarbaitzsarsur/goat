@@ -162,21 +162,13 @@ class AggregatePointsTool(AnalysisTool):
 
         # Get statistics SQL and result column name
         # Use first statistic from the list
-        stats_field = params.column_statistics[0].field
-        stats_operation = params.column_statistics[0].operation
+        stats = params.column_statistics[0]
         stats_sql = self.get_statistics_sql(
-            f"s.{stats_field}" if stats_field else "",
-            stats_operation.value,
+            f"s.{stats.field}" if stats.field else "",
+            stats.operation.value,
         )
-        # Column name: "count" for count, otherwise "{operation}_{field}"
-        if stats_operation.value == "count":
-            result_col = "count"
-        else:
-            result_col = (
-                f"{stats_operation.value}_{stats_field}"
-                if stats_field
-                else stats_operation.value
-            )
+        # Use the helper method for consistent column naming
+        result_col = stats.get_result_column_name()
 
         # Get all columns from area layer except geometry and bbox
         area_columns = self.con.execute(f"""
@@ -300,21 +292,13 @@ class AggregatePointsTool(AnalysisTool):
 
         # Get statistics SQL and result column name
         # Use first statistic from the list
-        stats_field = params.column_statistics[0].field
-        stats_operation = params.column_statistics[0].operation
+        stats = params.column_statistics[0]
         stats_sql = self.get_statistics_sql(
-            stats_field if stats_field else "",
-            stats_operation.value,
+            stats.field if stats.field else "",
+            stats.operation.value,
         )
-        # Column name: "count" for count, otherwise "{operation}_{field}"
-        if stats_operation.value == "count":
-            result_col = "count"
-        else:
-            result_col = (
-                f"{stats_operation.value}_{stats_field}"
-                if stats_field
-                else stats_operation.value
-            )
+        # Use the helper method for consistent column naming
+        result_col = stats.get_result_column_name()
 
         if params.group_by_field:
             # Build group by columns expression

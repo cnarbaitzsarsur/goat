@@ -23,9 +23,9 @@ from goatlib.analysis.schemas.ui import (
 from goatlib.models.io import DatasetMetadata
 from goatlib.tools.base import BaseToolRunner
 from goatlib.tools.schemas import (
-    get_default_layer_name,
     ScenarioSelectorMixin,
     ToolInputBase,
+    get_default_layer_name,
 )
 from goatlib.tools.style import get_heatmap_style
 

@@ -4,7 +4,6 @@ Tests custom validation logic in JoinToolParams.
 """
 
 import pytest
-
 from goatlib.analysis.schemas.data_management import (
     AttributeRelationship,
     FieldStatistic,
@@ -141,3 +140,80 @@ class TestJoinToolParamsValidation:
         )
         assert params.calculate_statistics is True
         assert len(params.field_statistics) == 1
+
+
+class TestColumnStatisticsAlias:
+    """Test column_statistics alias and single-dict-to-list conversion."""
+
+    BASE_PARAMS = {
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "folder_id": "00000000-0000-0000-0000-000000000002",
+        "target_layer_id": "00000000-0000-0000-0000-000000000003",
+        "join_layer_id": "00000000-0000-0000-0000-000000000004",
+        "use_spatial_relationship": True,
+        "use_attribute_relationship": False,
+        "spatial_relationship": SpatialRelationshipType.intersects,
+        "calculate_statistics": True,
+    }
+
+    def test_column_statistics_alias_works(self):
+        """column_statistics alias should map to field_statistics."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            column_statistics={"operation": "sum", "field": "value"},
+        )
+        # Should be accessible as field_statistics
+        assert params.field_statistics is not None
+        assert len(params.field_statistics) == 1
+        assert params.field_statistics[0].operation.value == "sum"
+
+    def test_single_dict_converted_to_list(self):
+        """A single dict for column_statistics should be converted to a list."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            column_statistics={"operation": "sum", "field": "value"},
+        )
+        assert isinstance(params.field_statistics, list)
+        assert len(params.field_statistics) == 1
+
+    def test_custom_result_name_preserved(self):
+        """Custom result_name should be preserved via alias."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            column_statistics={
+                "operation": "sum",
+                "field": "value",
+                "result_name": "my_total",
+            },
+        )
+        assert params.field_statistics[0].result_name == "my_total"
+
+    def test_count_operation_with_custom_name(self):
+        """Count operation with custom result_name should work."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            column_statistics={"operation": "count", "result_name": "match_count"},
+        )
+        assert params.field_statistics[0].operation.value == "count"
+        assert params.field_statistics[0].result_name == "match_count"
+        assert params.field_statistics[0].field is None
+
+    def test_count_operation_default_name(self):
+        """Count operation without custom name should use default."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            column_statistics={"operation": "count"},
+        )
+        assert params.field_statistics[0].operation.value == "count"
+        assert params.field_statistics[0].result_name is None
+        # get_result_column_name() should return "count"
+        assert params.field_statistics[0].get_result_column_name() == "count"
+
+    def test_field_statistics_direct_still_works(self):
+        """Using field_statistics directly should still work."""
+        params = JoinToolParams(
+            **self.BASE_PARAMS,
+            field_statistics=[FieldStatistic(field="population", operation="sum")],
+        )
+        assert len(params.field_statistics) == 1
+        assert params.field_statistics[0].field == "population"

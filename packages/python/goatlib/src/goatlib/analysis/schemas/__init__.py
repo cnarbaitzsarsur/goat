@@ -19,9 +19,9 @@ from .catchment_area import (
     PTMode,
     PTTimeWindow,
 )
+from .base import FieldStatistic, StatisticOperation
 from .data_management import (
     AttributeRelationship,
-    FieldStatistic,
     JoinOperationType,
     JoinParams,
     JoinType,
@@ -29,10 +29,16 @@ from .data_management import (
     MultipleMatchingRecordsType,
     SortConfiguration,
     SpatialRelationshipType,
-    StatisticOperation,
 )
 from .data_management import (
     SortOrder as JoinSortOrder,
+)
+from .geocoding import (
+    SECTION_GEOCODING,
+    FieldSourceType,
+    GeocodingInputMode,
+    GeocodingParams,
+    GeocodingResult,
 )
 from .geoprocessing import (
     BufferParams,
@@ -42,13 +48,6 @@ from .geoprocessing import (
     IntersectionParams,
     OriginDestinationParams,
     UnionParams,
-)
-from .geocoding import (
-    FieldSourceType,
-    GeocodingInputMode,
-    GeocodingParams,
-    GeocodingResult,
-    SECTION_GEOCODING,
 )
 from .heatmap import (
     HeatmapClosestAverageParams,
@@ -61,13 +60,16 @@ from .heatmap import (
     RoutingMode,
 )
 from .oev_gueteklasse import (
-    CatchmentType as OevCatchmentType,
+    STATION_CONFIG_DEFAULT,
     OevGueteklasseParams,
     OevGueteklasseStationConfig,
-    PTTimeWindow as OevPTTimeWindow,
-    STATION_CONFIG_DEFAULT,
 )
-from .trip_count import TripCountStationParams
+from .oev_gueteklasse import (
+    CatchmentType as OevCatchmentType,
+)
+from .oev_gueteklasse import (
+    PTTimeWindow as OevPTTimeWindow,
+)
 from .statistics import (
     AreaOperation,
     AreaStatisticsInput,
@@ -82,6 +84,7 @@ from .statistics import (
     UniqueValuesInput,
     UniqueValuesResult,
 )
+from .trip_count import TripCountStationParams
 from .ui import (
     SECTION_AREA,
     SECTION_CONFIGURATION,

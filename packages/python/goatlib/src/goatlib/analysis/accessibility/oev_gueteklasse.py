@@ -20,7 +20,6 @@ from goatlib.analysis.schemas.oev_gueteklasse import (
     OevGueteklasseParams,
     OevGueteklasseStationConfig,
     PTTimeWindow,
-    STATION_CONFIG_DEFAULT,
 )
 from goatlib.io.parquet import write_optimized_parquet
 

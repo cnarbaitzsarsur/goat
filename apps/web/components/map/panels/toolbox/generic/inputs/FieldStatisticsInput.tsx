@@ -4,10 +4,11 @@
  * Renders a field statistics selector that combines:
  * 1. An operation dropdown (count, sum, min, max, mean, standard_deviation)
  * 2. A field selector (when operation is not 'count')
+ * 3. An optional result column name input
  *
  * The related layer is determined by widget_options.source_layer.
  */
-import { Box, FormControl, InputLabel, MenuItem, Select, Typography } from "@mui/material";
+import { Box, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from "@mui/material";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,6 +35,7 @@ const STATISTIC_OPERATIONS = [
 interface FieldStatisticsValue {
   operation: string;
   field?: string | null;
+  result_name?: string | null;
 }
 
 interface FieldStatisticsInputProps {
@@ -63,6 +65,7 @@ export default function FieldStatisticsInput({
       return {
         operation: v.operation || "",
         field: v.field ?? null,
+        result_name: v.result_name ?? null,
       };
     }
     // Handle single object format (legacy)
@@ -71,16 +74,22 @@ export default function FieldStatisticsInput({
       return {
         operation: v.operation || "",
         field: v.field ?? null,
+        result_name: v.result_name ?? null,
       };
     }
-    return { operation: "", field: null };
+    return { operation: "", field: null, result_name: null };
   }, [value]);
 
   // Helper to emit value in array format (backend expects List[FieldStatistic])
   const emitChange = (newValue: FieldStatisticsValue) => {
     // Only emit if there's a valid operation
     if (newValue.operation) {
-      onChange([newValue]);
+      // Clean up result_name if empty string
+      const cleanedValue = {
+        ...newValue,
+        result_name: newValue.result_name?.trim() || null,
+      };
+      onChange([cleanedValue]);
     } else {
       onChange(null);
     }
@@ -130,10 +139,10 @@ export default function FieldStatisticsInput({
   const handleOperationChange = (operation: string) => {
     if (operation === "count") {
       // Count operation doesn't need a field
-      emitChange({ operation, field: null });
+      emitChange({ operation, field: null, result_name: currentValue.result_name });
     } else {
       // Preserve field if it was already selected, otherwise set to null
-      emitChange({ operation, field: currentValue.field || null });
+      emitChange({ operation, field: currentValue.field || null, result_name: currentValue.result_name });
     }
   };
 
@@ -141,8 +150,25 @@ export default function FieldStatisticsInput({
     emitChange({
       operation: currentValue.operation,
       field: field?.name ?? null,
+      result_name: currentValue.result_name,
     });
   };
+
+  const handleResultNameChange = (resultName: string) => {
+    emitChange({
+      operation: currentValue.operation,
+      field: currentValue.field,
+      result_name: resultName || null,
+    });
+  };
+
+  // Generate placeholder for result name based on current selection
+  const resultNamePlaceholder = useMemo(() => {
+    if (!currentValue.operation) return "";
+    if (currentValue.operation === "count") return "count";
+    if (currentValue.field) return `${currentValue.field}_${currentValue.operation}`;
+    return "";
+  }, [currentValue.operation, currentValue.field]);
 
   // Get label from uiMeta or fallback to title
   const label = input.uiMeta?.label || input.title || input.name;
@@ -185,6 +211,20 @@ export default function FieldStatisticsInput({
           label={t("select_field")}
           tooltip={t("select_numeric_field_for_statistics")}
           disabled={disabled || isLoading}
+        />
+      )}
+
+      {/* Result Column Name (optional) - only show when operation is selected */}
+      {currentValue.operation && (
+        <TextField
+          size="small"
+          fullWidth
+          label={t("result_column_name")}
+          placeholder={resultNamePlaceholder}
+          value={currentValue.result_name || ""}
+          onChange={(e) => handleResultNameChange(e.target.value)}
+          disabled={disabled}
+          helperText={t("result_column_name_helper")}
         />
       )}
     </Box>

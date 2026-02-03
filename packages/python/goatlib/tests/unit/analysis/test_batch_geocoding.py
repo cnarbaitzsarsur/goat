@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import duckdb
 import pytest
-
 from goatlib.analysis.geoanalysis import BatchGeocodingTool
 from goatlib.analysis.schemas.geocoding import (
     BatchGeocodingParams,
@@ -14,7 +13,6 @@ from goatlib.analysis.schemas.geocoding import (
     GeocodingInputMode,
 )
 from goatlib.models.io import DatasetMetadata
-
 
 # =============================================================================
 # Mock Pelias Responses

@@ -15,7 +15,6 @@ from typing import Any
 
 import duckdb
 import pytest
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.layer_import import LayerImportParams, LayerImportRunner
 
@@ -57,7 +56,6 @@ def upload_test_file_to_s3(
         Returns:
             S3 key for the uploaded file
         """
-        import boto3
 
         # Get S3 client from settings
         client = tool_settings.get_s3_client()

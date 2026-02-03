@@ -3,9 +3,8 @@
 from pathlib import Path
 
 import duckdb
-
-from goatlib.analysis.schemas.geoprocessing import ClipParams
 from goatlib.analysis.geoprocessing.clip import ClipTool
+from goatlib.analysis.schemas.geoprocessing import ClipParams
 
 
 def test_clip_polygons() -> None:

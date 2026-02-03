@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goatlib.analysis.data_management.join import JoinTool
 from goatlib.analysis.schemas.base import FieldStatistic
@@ -30,9 +30,9 @@ from goatlib.analysis.schemas.ui import (
 from goatlib.models.io import DatasetMetadata
 from goatlib.tools.base import BaseToolRunner
 from goatlib.tools.schemas import (
-    get_default_layer_name,
     ScenarioSelectorMixin,
     ToolInputBase,
+    get_default_layer_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ class JoinToolParams(ScenarioSelectorMixin, ToolInputBase, BaseModel):
     """
 
     model_config = ConfigDict(
+        populate_by_name=True,
         json_schema_extra=ui_sections(
             SECTION_INPUT,
             UISection(id="join_layer", order=2, icon="layers"),
@@ -106,7 +107,7 @@ class JoinToolParams(ScenarioSelectorMixin, ToolInputBase, BaseModel):
                 depends_on={"target_layer_id": {"$ne": None}},
             ),
             SECTION_OUTPUT,
-        )
+        ),
     )
 
     # Layer ID inputs
@@ -253,6 +254,8 @@ class JoinToolParams(ScenarioSelectorMixin, ToolInputBase, BaseModel):
     )
     field_statistics: Optional[List[FieldStatistic]] = Field(
         None,
+        alias="column_statistics",
+        validation_alias="column_statistics",
         description="Field statistics to calculate. Supported statistics: sum, min, max, mean, standard deviation.",
         json_schema_extra=ui_field(
             section="join_options",
@@ -267,6 +270,18 @@ class JoinToolParams(ScenarioSelectorMixin, ToolInputBase, BaseModel):
             },
         ),
     )
+
+    @field_validator("field_statistics", mode="before")
+    @classmethod
+    def wrap_field_statistics_in_list(
+        cls, value: dict | List[dict] | None
+    ) -> List[dict] | None:
+        """Convert a single field_statistics dict to a list for backwards compatibility."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return [value]
+        return value
 
     @model_validator(mode="after")
     def validate_join_config(self: Self) -> Self:

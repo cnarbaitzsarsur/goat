@@ -1,6 +1,9 @@
+import { Button, Stack, Typography } from "@mui/material";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
 import { type StatisticOperation, statisticOperationEnum } from "@/lib/validations/common";
 
@@ -9,9 +12,10 @@ import type { SelectorItem } from "@/types/map/common";
 import useLayerFields from "@/hooks/map/CommonHooks";
 import { useLayerDatasetId, useStatisticValues } from "@/hooks/map/ToolsHooks";
 
+import FormLabelHelper from "@/components/common/FormLabelHelper";
 import LayerFieldSelector from "@/components/map/common/LayerFieldSelector";
 import Selector from "@/components/map/panels/common/Selector";
-import TextFieldInput from "@/components/map/panels/common/TextFieldInput";
+import FormulaBuilder from "@/components/modals/FormulaBuilder";
 
 export type StatisticConfig = {
   method?: StatisticOperation | undefined;
@@ -32,6 +36,8 @@ export const StatisticSelector = ({
 }) => {
   const { t } = useTranslation("common");
   const { projectId } = useParams();
+
+  const [formulaBuilderOpen, setFormulaBuilderOpen] = useState(false);
 
   const { statisticMethods } = useStatisticValues(true);
   const layerDatasetId = useLayerDatasetId(layerProjectId, projectId as string);
@@ -131,21 +137,51 @@ export const StatisticSelector = ({
         />
       )}
       {selectedStatisticMethod?.value === statisticOperationEnum.Enum.expression && (
-        <TextFieldInput
-          type="text"
-          label={t("expression")}
-          placeholder={t("enter_expression_placeholder")}
-          clearable={false}
-          value={value?.value || ""}
-          onChange={(expression: string) => {
-            if (onChange) {
-              onChange({
-                method: statisticOperationEnum.Enum.expression,
-                value: expression,
-              });
-            }
-          }}
-        />
+        <>
+          <FormLabelHelper label={t("expression")} tooltip={t("expression_tooltip")} color="text.secondary" />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={() => setFormulaBuilderOpen(true)}
+              startIcon={<Icon iconName={ICON_NAME.CODE} fontSize="small" />}
+              sx={{
+                justifyContent: "flex-start",
+                textTransform: "none",
+                fontFamily: value?.value ? "monospace" : "inherit",
+                color: value?.value ? "text.primary" : "text.secondary",
+              }}>
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}>
+                {value?.value || t("click_to_build_expression")}
+              </Typography>
+            </Button>
+          </Stack>
+          <FormulaBuilder
+            open={formulaBuilderOpen}
+            onClose={() => setFormulaBuilderOpen(false)}
+            onApply={(expression: string, groupByColumn?: string) => {
+              if (onChange) {
+                onChange({
+                  method: statisticOperationEnum.Enum.expression,
+                  value: expression,
+                  groupBy: groupByColumn,
+                });
+              }
+            }}
+            initialExpression={value?.value || ""}
+            initialGroupByColumn={value?.groupBy || ""}
+            fields={layerFields || []}
+            collectionId={layerDatasetId || undefined}
+            showGroupBy={hasGroupBy}
+          />
+        </>
       )}
     </>
   );

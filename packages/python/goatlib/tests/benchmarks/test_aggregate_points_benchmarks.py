@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Tuple
 
 import duckdb
-
 from goatlib.analysis.geoanalysis.aggregate_points import AggregatePointsTool
 from goatlib.analysis.schemas.aggregate import (
     AggregatePointsParams,

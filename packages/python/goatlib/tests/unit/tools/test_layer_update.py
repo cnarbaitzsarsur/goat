@@ -9,13 +9,12 @@ Tests the layer update functionality including:
 - Permission checks
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
+import pytest
 from goatlib.tools.layer_update import (
-    LayerUpdateParams,
     LayerUpdateOutput,
+    LayerUpdateParams,
     LayerUpdateRunner,
 )
 
@@ -177,7 +176,9 @@ class TestLayerUpdateRunner:
         mock_pool = AsyncMock()
         mock_pool.fetchrow.return_value = {
             "id": uuid.UUID("00000000-0000-0000-0000-000000000001"),
-            "user_id": uuid.UUID("00000000-0000-0000-0000-000000000099"),  # Different owner
+            "user_id": uuid.UUID(
+                "00000000-0000-0000-0000-000000000099"
+            ),  # Different owner
             "folder_id": uuid.UUID("00000000-0000-0000-0000-000000000003"),
             "name": "Test Layer",
             "type": "feature",
@@ -221,7 +222,6 @@ class TestLayerUpdateIntegration:
 
     def test_run_s3_update_success(self, mock_settings, tmp_path):
         """Test successful S3-based update flow."""
-        import uuid
 
         runner = LayerUpdateRunner()
         runner.settings = mock_settings
@@ -246,6 +246,7 @@ class TestLayerUpdateIntegration:
 
         # Mock metadata
         from goatlib.models.io import DatasetMetadata
+
         mock_metadata = DatasetMetadata(
             path="/tmp/test.parquet",
             source_type="vector",
@@ -264,11 +265,16 @@ class TestLayerUpdateIntegration:
             "columns": {"id": "VARCHAR", "geometry": "GEOMETRY"},
         }
 
-        with patch.object(runner, "_get_layer_full_info", new_callable=AsyncMock) as mock_get_info, \
-             patch.object(runner, "_import_from_s3") as mock_import, \
-             patch.object(runner, "_replace_ducklake_table") as mock_replace, \
-             patch.object(runner, "_update_layer_metadata", new_callable=AsyncMock) as mock_update:
-
+        with (
+            patch.object(
+                runner, "_get_layer_full_info", new_callable=AsyncMock
+            ) as mock_get_info,
+            patch.object(runner, "_import_from_s3") as mock_import,
+            patch.object(runner, "_replace_ducklake_table") as mock_replace,
+            patch.object(
+                runner, "_update_layer_metadata", new_callable=AsyncMock
+            ) as mock_update,
+        ):
             mock_get_info.return_value = layer_info
             mock_import.return_value = mock_metadata
             mock_replace.return_value = table_info
@@ -311,6 +317,7 @@ class TestLayerUpdateIntegration:
         }
 
         from goatlib.models.io import DatasetMetadata
+
         mock_metadata = DatasetMetadata(
             path="https://example.com/wfs",
             source_type="remote",
@@ -328,11 +335,16 @@ class TestLayerUpdateIntegration:
             "columns": {"id": "VARCHAR", "geometry": "GEOMETRY", "name": "VARCHAR"},
         }
 
-        with patch.object(runner, "_get_layer_full_info", new_callable=AsyncMock) as mock_get_info, \
-             patch.object(runner, "_import_from_wfs") as mock_import_wfs, \
-             patch.object(runner, "_replace_ducklake_table") as mock_replace, \
-             patch.object(runner, "_update_layer_metadata", new_callable=AsyncMock) as mock_update:
-
+        with (
+            patch.object(
+                runner, "_get_layer_full_info", new_callable=AsyncMock
+            ) as mock_get_info,
+            patch.object(runner, "_import_from_wfs") as mock_import_wfs,
+            patch.object(runner, "_replace_ducklake_table") as mock_replace,
+            patch.object(
+                runner, "_update_layer_metadata", new_callable=AsyncMock
+            ) as mock_update,
+        ):
             mock_get_info.return_value = layer_info
             mock_import_wfs.return_value = mock_metadata
             mock_replace.return_value = table_info
@@ -373,7 +385,9 @@ class TestLayerUpdateIntegration:
             "other_properties": {},  # No URL!
         }
 
-        with patch.object(runner, "_get_layer_full_info", new_callable=AsyncMock) as mock_get_info:
+        with patch.object(
+            runner, "_get_layer_full_info", new_callable=AsyncMock
+        ) as mock_get_info:
             mock_get_info.return_value = layer_info
 
             params = LayerUpdateParams(
@@ -392,7 +406,9 @@ class TestLayerUpdateIntegration:
         runner = LayerUpdateRunner()
         runner.settings = mock_settings
 
-        with patch.object(runner, "_get_layer_full_info", new_callable=AsyncMock) as mock_get_info:
+        with patch.object(
+            runner, "_get_layer_full_info", new_callable=AsyncMock
+        ) as mock_get_info:
             mock_get_info.side_effect = PermissionError("User X cannot update layer Y")
 
             params = LayerUpdateParams(
@@ -412,7 +428,7 @@ class TestLayerUpdateRegistry:
 
     def test_tool_in_registry(self):
         """Verify layer_update is in the tool registry."""
-        from goatlib.tools.registry import TOOL_REGISTRY, get_tool
+        from goatlib.tools.registry import get_tool
 
         tool = get_tool("layer_update")
         assert tool is not None

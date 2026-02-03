@@ -4,7 +4,6 @@ Geocodes addresses from an input layer using Pelias geocoder service.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Any, Self
 

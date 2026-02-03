@@ -3,9 +3,8 @@
 from pathlib import Path
 
 import duckdb
-
-from goatlib.analysis.schemas.geoprocessing import DifferenceParams
 from goatlib.analysis.geoprocessing.difference import DifferenceTool
+from goatlib.analysis.schemas.geoprocessing import DifferenceParams
 
 
 def test_difference_polygons() -> None:
