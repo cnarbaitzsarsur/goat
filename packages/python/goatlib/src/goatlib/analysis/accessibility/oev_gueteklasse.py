@@ -602,7 +602,7 @@ class OevGueteklasseTool(PTToolBase):
             SELECT
                 pt_class,
                 pt_class_label,
-                geom
+                geom AS geometry
             FROM (
                 SELECT
                     pt_class,
@@ -616,7 +616,7 @@ class OevGueteklasseTool(PTToolBase):
             self.con,
             output_query,
             output_path,
-            geometry_column="geom",
+            geometry_column="geometry",
         )
 
         # Export stations if path provided
@@ -629,7 +629,7 @@ class OevGueteklasseTool(PTToolBase):
                     CAST(total_trips AS INTEGER) AS total_trips,
                     ROUND(frequency_minutes, 2) AS frequency_minutes,
                     station_category,
-                    geom
+                    geom AS geometry
                 FROM station_categories
                 ORDER BY station_category, stop_name
             """
@@ -637,7 +637,7 @@ class OevGueteklasseTool(PTToolBase):
                 self.con,
                 stations_query,
                 stations_output_path,
-                geometry_column="geom",
+                geometry_column="geometry",
             )
 
         # Collect statistics

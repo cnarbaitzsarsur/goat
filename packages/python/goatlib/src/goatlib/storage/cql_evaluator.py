@@ -32,12 +32,14 @@ from pygeofilter.backends.evaluator import Evaluator, handle
 class DuckDBCQLEvaluator(Evaluator):
     """Convert CQL2 AST to DuckDB SQL WHERE clause."""
 
-    def __init__(self, field_names: list[str], geometry_column: str = "geom") -> None:
+    def __init__(
+        self, field_names: list[str], geometry_column: str = "geometry"
+    ) -> None:
         """Initialize evaluator.
 
         Args:
             field_names: List of valid column names in the table
-            geometry_column: Name of the geometry column (default: "geom")
+            geometry_column: Name of the geometry column (default: "geometry")
         """
         self.field_names = [f.lower() for f in field_names]
         self.geometry_column = geometry_column
@@ -303,7 +305,7 @@ class DuckDBCQLEvaluator(Evaluator):
 def cql2_to_duckdb_sql(
     cql_ast: Any,
     field_names: list[str],
-    geometry_column: str = "geom",
+    geometry_column: str = "geometry",
 ) -> tuple[str, list[Any]]:
     """Convert CQL2 AST to DuckDB SQL WHERE clause with parameters.
 

@@ -1,12 +1,13 @@
 import { Box, Typography, useTheme } from "@mui/material";
 import LinearProgress from "@mui/material/LinearProgress";
 import chroma from "chroma-js";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useLayerUniqueValues } from "@/lib/api/layers";
 import { useProjectLayerAggregationStats } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
+import { normalizeValue } from "@/lib/utils/normalize-value";
 import type { AggregationStatsQueryParams } from "@/lib/validations/project";
 import { aggregationStatsQueryParams } from "@/lib/validations/project";
 import type { CategoriesChartSchema } from "@/lib/validations/widget";
@@ -83,12 +84,6 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
   // Data handling
   const originalData = useMemo(() => aggregationStats?.items || [], [aggregationStats]);
 
-  // Normalize numeric strings for comparison (handles "12" vs "12.0" format differences)
-  const normalizeValue = useCallback((v: string): string => {
-    const num = parseFloat(v);
-    return isNaN(num) ? v : String(num);
-  }, []);
-
   // Only show highlight visualization when there's actually filtered data
   const showHighlight = useMemo(() => {
     if (!isHighlightMode || !selectedStats || !aggregationStats) return false;
@@ -124,7 +119,7 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
         const bIdx = orderMap.get(normalizeValue(b.grouped_value)) ?? Infinity;
         return aIdx - bIdx;
       });
-  }, [originalData, config?.setup?.custom_order, normalizeValue]);
+  }, [originalData, config?.setup?.custom_order]);
 
   const displayData = useMemo(() => {
     if (orderedData.length > 0) return orderedData;
@@ -146,7 +141,7 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
       lookup.set(normalizeValue(value), color);
     });
     return lookup;
-  }, [config?.options?.color_map, normalizeValue]);
+  }, [config?.options?.color_map]);
 
   // Generate base colors for each category
   const baseColors = useMemo(() => {
@@ -171,7 +166,7 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
     return displayData.length === 1
       ? [palette[0]]
       : chroma.scale(palette).mode("lch").colors(displayData.length);
-  }, [displayData, orderedData.length, config?.options?.color_range?.colors, colorMapLookup, normalizeValue]);
+  }, [displayData, orderedData.length, config?.options?.color_range?.colors, colorMapLookup]);
 
   // Colors for highlight/selected states
   const selectedColor = config?.options?.selected_color || DEFAULT_SELECTED_COLOR;

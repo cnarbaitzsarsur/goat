@@ -1,14 +1,9 @@
 import { useMemo } from "react";
 
 import { useLayerUniqueValues } from "@/lib/api/layers";
+import { normalizeValue } from "@/lib/utils/normalize-value";
 
 export const MAX_FILTER_VALUES = 20;
-
-// Normalize numeric strings for comparison (handles "12" vs "12.0" format differences)
-const normalizeValue = (v: string): string => {
-  const num = parseFloat(v);
-  return isNaN(num) ? v : String(num);
-};
 
 interface UseFilterValuesParams {
   layerId: string;

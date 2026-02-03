@@ -7,6 +7,7 @@ import { Cell, Label, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { useLayerUniqueValues } from "@/lib/api/layers";
 import { useProjectLayerAggregationStats } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
+import { normalizeValue } from "@/lib/utils/normalize-value";
 import type { AggregationStatsQueryParams } from "@/lib/validations/project";
 import { aggregationStatsQueryParams } from "@/lib/validations/project";
 import type { PieChartSchema } from "@/lib/validations/widget";
@@ -67,12 +68,6 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
 
   const originalData = useMemo(() => aggregationStats?.items || [], [aggregationStats]);
 
-  // Normalize numeric strings for comparison (handles "12" vs "12.0" format differences)
-  const normalizeValue = useCallback((v: string): string => {
-    const num = parseFloat(v);
-    return isNaN(num) ? v : String(num);
-  }, []);
-
   // Apply custom order if defined
   const orderedData = useMemo(() => {
     if (!originalData.length) return originalData;
@@ -93,7 +88,7 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
         const bIdx = orderMap.get(normalizeValue(b.grouped_value)) ?? Infinity;
         return aIdx - bIdx;
       });
-  }, [originalData, config?.setup?.custom_order, normalizeValue]);
+  }, [originalData, config?.setup?.custom_order]);
 
   const data = orderedData;
   const displayData = useMemo(() => {
@@ -137,7 +132,7 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
       lookup.set(normalizeValue(value), color);
     });
     return lookup;
-  }, [config?.options?.color_map, normalizeValue]);
+  }, [config?.options?.color_map]);
 
   const baseColors = useMemo(() => {
     if (displayData.length === 0) return [];
@@ -160,7 +155,7 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     return displayData.length === 1
       ? [palette[0]]
       : chroma.scale(palette).mode("lch").colors(displayData.length);
-  }, [displayData, data.length, config?.options?.color_range?.colors, colorMapLookup, normalizeValue]);
+  }, [displayData, data.length, config?.options?.color_range?.colors, colorMapLookup]);
 
   const computedColors = useMemo(() => {
     return displayData.map((item, index) => {

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def calculate_extent(
     con: duckdb.DuckDBPyConnection,
     table_name: str,
-    geometry_column: str = "geom",
+    geometry_column: str = "geometry",
     where_clause: str = "TRUE",
     params: list[Any] | None = None,
     source_crs: str = "EPSG:4326",
@@ -25,7 +25,7 @@ def calculate_extent(
     Args:
         con: DuckDB connection
         table_name: Fully qualified table name (e.g., "lake.my_table")
-        geometry_column: Name of the geometry column (default: "geom")
+        geometry_column: Name of the geometry column (default: "geometry")
         where_clause: SQL WHERE clause condition (default: "TRUE" for all rows)
         params: Optional query parameters for prepared statement
         source_crs: Source CRS of the geometry column (default: "EPSG:4326")

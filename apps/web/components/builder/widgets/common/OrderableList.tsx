@@ -26,6 +26,8 @@ import {
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { normalizeValue } from "@/lib/utils/normalize-value";
+
 import type { SelectorItem } from "@/types/map/common";
 
 import Selector from "@/components/map/panels/common/Selector";
@@ -136,12 +138,6 @@ const OrderableList = ({
   emptyMessage,
 }: OrderableListProps) => {
   const { t } = useTranslation("common");
-
-  // Normalize numeric strings for comparison (handles "12" vs "12.0" format differences)
-  const normalizeValue = (v: string): string => {
-    const num = parseFloat(v);
-    return isNaN(num) ? v : String(num);
-  };
 
   // Build normalized lookup for matching
   const normalizedAllItems = useMemo(() => {
