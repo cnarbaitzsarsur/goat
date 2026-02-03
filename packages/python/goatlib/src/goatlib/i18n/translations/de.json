@@ -914,5 +914,9 @@
       "twosfca": "2SFCA",
       "e2sfca": "Erweiterte 2SFCA",
       "m2sfca": "Modifizierte 2SFCA"
+    },
+    "cluster_type": {
+      "kmean": "K-Means",
+      "equal_size": "Ausgewogene Zonen"
     }
 }

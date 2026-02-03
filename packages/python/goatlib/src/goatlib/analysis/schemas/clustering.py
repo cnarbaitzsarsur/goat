@@ -5,10 +5,6 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from goatlib.analysis.schemas.ui import (
-    SECTION_CONFIGURATION,
-    SECTION_DEMAND,
-    SECTION_OPPORTUNITIES,
-    SECTION_ROUTING,
     ui_field,
     ui_sections,
 )
@@ -19,8 +15,13 @@ logger = logging.getLogger(__name__)
 class ClusterType(StrEnum):
     """Type of potential value source."""
 
-    kmean = "K-mean"
-    equal_size = "Equal_size"
+    kmean = "kmean"
+    equal_size = "equal_size"
+
+ClusterType_LABELS: dict[str, str] = {
+    "kmean": "cluster_type.kmean",
+    "equal_size": "cluster_type.equal_size",
+}
 
 
 class ClusteringParams(BaseModel):
@@ -31,7 +32,8 @@ class ClusteringParams(BaseModel):
         description="clustering_zones",
         json_schema_extra=ui_field(
             section="configuration",
-            field_order=1
+            field_order=1,
+            enum_labels=ClusterType_LABELS
         ),
     )
 
