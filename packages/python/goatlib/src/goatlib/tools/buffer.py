@@ -117,7 +117,8 @@ class BufferToolRunner(BaseToolRunner[BufferToolParams]):
         # Normal mode: all input columns plus buffer_distance
         primary_input = input_schemas.get("input_layer_id", {})
         columns = dict(primary_input)
-        columns["buffer_distance"] = "INTEGER"
+        col_name = cls.unique_column_name(columns, "buffer_distance")
+        columns[col_name] = "INTEGER"
         return columns
 
     def get_layer_properties(

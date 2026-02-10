@@ -82,7 +82,7 @@ const configToReactFlow = (config: WorkflowConfig | undefined) => {
 const reactFlowToConfig = (nodes: Node[], edges: Edge[]): Pick<WorkflowConfig, "nodes" | "edges"> => {
   const workflowNodes: WorkflowNode[] = nodes.map((node) => ({
     id: node.id,
-    type: node.type as "dataset" | "tool",
+    type: node.type as "dataset" | "tool" | "export" | "textAnnotation",
     position: node.position,
     data: node.data as WorkflowNode["data"],
   }));

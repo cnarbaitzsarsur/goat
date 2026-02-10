@@ -77,6 +77,8 @@ PUBLIC_ALLOWED_PROCESSES = frozenset(
         "extent",
         "aggregation-stats",
         "histogram",
+        "validate-sql",
+        "preview-sql",
     }
 )
 
@@ -161,6 +163,17 @@ def _execute_analytics_sync(process_id: str, inputs: dict[str, Any]) -> dict[str
                 num_bins=inputs.get("num_bins", 10),
                 filter_expr=inputs.get("filter"),
                 order=inputs.get("order", "ascendent"),
+            )
+        elif process_id == "validate-sql":
+            return analytics_service.validate_sql(
+                sql_query=inputs.get("sql_query", ""),
+                table_schemas=inputs.get("table_schemas"),
+            )
+        elif process_id == "preview-sql":
+            return analytics_service.preview_sql(
+                sql_query=inputs.get("sql_query", ""),
+                layers=inputs.get("layers", {}),
+                limit=inputs.get("limit", 10),
             )
         else:
             raise HTTPException(

@@ -507,6 +507,18 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
         toolbox_hidden=True,
         worker_tag="print",
     ),
+    ToolDefinition(
+        name="custom_sql",
+        display_name="Custom SQL",
+        description="Execute custom SQL query against workflow layers",
+        module_path="goatlib.tools.custom_sql",
+        params_class_name="CustomSqlToolParams",
+        windmill_path="f/goat/tools/custom_sql",
+        category="data_management",
+        keywords=("sql", "query", "custom", "transform"),
+        toolbox_hidden=True,
+        worker_tag="tools",
+    ),
 )
 
 

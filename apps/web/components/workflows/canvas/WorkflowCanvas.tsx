@@ -64,6 +64,7 @@ import { useWorkflowHistory } from "@/hooks/workflows/useWorkflowHistory";
 
 import DeletableEdge from "../edges/DeletableEdge";
 import DatasetNode from "../nodes/DatasetNode";
+import ExportNode from "../nodes/ExportNode";
 import TextAnnotationNode from "../nodes/TextAnnotationNode";
 import ToolNode from "../nodes/ToolNode";
 import CanvasToolbar from "./CanvasToolbar";
@@ -231,6 +232,7 @@ const CustomControls: React.FC<CustomControlsProps> = ({ isLocked, onToggleLock 
 const nodeTypes: NodeTypes = {
   dataset: DatasetNode,
   tool: ToolNode,
+  export: ExportNode,
   textAnnotation: TextAnnotationNode,
 };
 

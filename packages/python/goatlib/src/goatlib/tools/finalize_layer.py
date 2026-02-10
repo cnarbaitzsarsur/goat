@@ -300,6 +300,7 @@ def main(
     project_id: str,
     folder_id: str,
     layer_name: str | None = None,
+    export_node_id: str | None = None,  # Used by workflow_runner for status tracking
 ) -> dict:
     """Windmill entry point for finalize layer.
 

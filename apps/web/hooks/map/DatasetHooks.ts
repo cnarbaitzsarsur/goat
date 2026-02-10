@@ -53,12 +53,18 @@ export const useDatasetValueSelectorMethods = ({
     ...(cqlFilter ? { query: JSON.stringify(cqlFilter) } : {}),
   });
 
+  // Memoize the serialized cqlFilter to use as a stable dependency
+  const serializedCqlFilter = useMemo(
+    () => (cqlFilter ? JSON.stringify(cqlFilter) : null),
+    [cqlFilter]
+  );
+
   // Update queryParams when cqlFilter changes
   useEffect(() => {
-    if (cqlFilter) {
+    if (serializedCqlFilter) {
       setQueryParams((params) => ({
         ...params,
-        query: JSON.stringify(cqlFilter),
+        query: serializedCqlFilter,
       }));
     } else {
       setQueryParams((params) => {
@@ -66,7 +72,7 @@ export const useDatasetValueSelectorMethods = ({
         return rest;
       });
     }
-  }, [JSON.stringify(cqlFilter)]);
+  }, [serializedCqlFilter]);
 
   const _selectedValues = useMemo(() => selectedValues || [], [selectedValues]);
 

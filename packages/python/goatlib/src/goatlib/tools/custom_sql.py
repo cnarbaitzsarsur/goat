@@ -1,0 +1,428 @@
+"""Custom SQL tool for Windmill.
+
+Allows users to execute custom SQL SELECT queries against workflow layers
+and project/catalog layers, producing a new output table/layer.
+
+Layers are loaded as named DuckDB views using fixed aliases:
+- input_1, input_2, input_3: from connected workflow inputs
+- User-defined aliases: from additional project/catalog layers
+
+Security: Only SELECT statements (and WITH/CTEs) are allowed.
+DDL/DML statements are rejected.
+"""
+
+import logging
+import re
+import tempfile
+from pathlib import Path
+from typing import Any, Self
+
+import duckdb
+from pydantic import ConfigDict, Field
+
+from goatlib.analysis.schemas.ui import (
+    SECTION_INPUT,
+    SECTION_OUTPUT,
+    SECTION_RESULT,
+    UISection,
+    ui_field,
+    ui_sections,
+)
+from goatlib.models.io import DatasetMetadata
+from goatlib.tools.base import BaseToolRunner
+from goatlib.tools.schemas import ToolInputBase
+
+logger = logging.getLogger(__name__)
+
+# SQL keywords that indicate non-SELECT statements
+FORBIDDEN_SQL_KEYWORDS = {
+    "CREATE",
+    "DROP",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "ALTER",
+    "TRUNCATE",
+    "COPY",
+    "ATTACH",
+    "DETACH",
+    "EXPORT",
+    "IMPORT",
+    "LOAD",
+    "INSTALL",
+    "GRANT",
+    "REVOKE",
+    "PRAGMA",
+    "SET",
+    "CALL",
+}
+
+
+def validate_sql_query(sql: str) -> None:
+    """Validate that a SQL query is a safe SELECT statement.
+
+    Args:
+        sql: The SQL query to validate
+
+    Raises:
+        ValueError: If the query contains forbidden statements
+    """
+    if not sql or not sql.strip():
+        raise ValueError("SQL query cannot be empty")
+
+    # Normalize whitespace and strip comments
+    cleaned = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)  # line comments
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)  # block comments
+    cleaned = cleaned.strip()
+
+    if not cleaned:
+        raise ValueError("SQL query cannot be empty after removing comments")
+
+    # Check that the query starts with SELECT or WITH (for CTEs)
+    first_word = cleaned.split()[0].upper()
+    if first_word not in ("SELECT", "WITH"):
+        raise ValueError(
+            f"Only SELECT statements are allowed. Got: {first_word}"
+        )
+
+    # Check for forbidden keywords at statement boundaries
+    # Split on semicolons to handle multi-statement injection attempts
+    statements = [s.strip() for s in cleaned.split(";") if s.strip()]
+    if len(statements) > 1:
+        raise ValueError("Multiple SQL statements are not allowed")
+
+    # Check for forbidden keywords as standalone words (not inside strings)
+    # Remove string literals first to avoid false positives
+    no_strings = re.sub(r"'[^']*'", "", cleaned)
+    words = re.findall(r"\b[A-Za-z_]+\b", no_strings)
+    upper_words = {w.upper() for w in words}
+
+    forbidden_found = upper_words & FORBIDDEN_SQL_KEYWORDS
+    if forbidden_found:
+        raise ValueError(
+            f"Forbidden SQL keywords found: {', '.join(sorted(forbidden_found))}"
+        )
+
+
+class CustomSqlToolParams(ToolInputBase):
+    """Parameters for custom SQL tool.
+
+    The 3 input layer fields are optional — users connect 0-3 upstream nodes.
+    Additional layers can be added from project/catalog for more complex queries.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra=ui_sections(
+            UISection(
+                id="input",
+                order=1,
+                icon="layers",
+            ),
+            UISection(
+                id="sql",
+                order=2,
+                icon="table",
+            ),
+            SECTION_RESULT,
+            SECTION_OUTPUT,
+        )
+    )
+
+    # Connected workflow inputs (0-3 optional layer-selector handles)
+    input_layer_1_id: str | None = Field(
+        None,
+        description="First input layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="input",
+            field_order=1,
+            widget="layer-selector",
+            label_key="input_layer_1",
+        ),
+    )
+    input_layer_1_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for first input layer",
+        json_schema_extra=ui_field(section="input", field_order=2, hidden=True),
+    )
+    input_layer_2_id: str | None = Field(
+        None,
+        description="Second input layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="input",
+            field_order=3,
+            widget="layer-selector",
+            label_key="input_layer_2",
+        ),
+    )
+    input_layer_2_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for second input layer",
+        json_schema_extra=ui_field(section="input", field_order=4, hidden=True),
+    )
+    input_layer_3_id: str | None = Field(
+        None,
+        description="Third input layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="input",
+            field_order=5,
+            widget="layer-selector",
+            label_key="input_layer_3",
+        ),
+    )
+    input_layer_3_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for third input layer",
+        json_schema_extra=ui_field(section="input", field_order=6, hidden=True),
+    )
+
+    # The SQL query
+    sql_query: str = Field(
+        "",
+        description="SQL SELECT statement to execute against the input layers",
+        json_schema_extra=ui_field(
+            section="sql",
+            field_order=1,
+            label_key="sql_query",
+        ),
+    )
+
+    # Additional layers from project/catalog (not connected via edges)
+    additional_layers: list[dict[str, Any]] | None = Field(
+        None,
+        description="Additional layers from project/catalog: [{layerId, alias, layerName}]",
+        json_schema_extra=ui_field(section="sql", field_order=2, hidden=True),
+    )
+
+    # Override result_layer_name default
+    result_layer_name: str | None = Field(
+        "Custom SQL",
+        description="Name for the result layer.",
+        json_schema_extra=ui_field(
+            section="result",
+            field_order=1,
+            label_key="result_layer_name",
+        ),
+    )
+
+
+class CustomSqlToolRunner(BaseToolRunner[CustomSqlToolParams]):
+    """Custom SQL tool runner for Windmill.
+
+    Loads input layers as DuckDB views and executes a user-provided
+    SELECT statement, writing the result to a new layer.
+    """
+
+    tool_class = None  # type: ignore[assignment]
+    output_geometry_type = None  # Dynamic — depends on SQL output
+    default_output_name = "Custom SQL"
+
+    @classmethod
+    def predict_output_schema(
+        cls,
+        input_schemas: dict[str, dict[str, str]],
+        params: dict[str, Any],
+    ) -> dict[str, str]:
+        """Predict output schema by executing SQL with LIMIT 0.
+
+        Creates in-memory DuckDB tables from input schemas and runs the
+        user's SQL with LIMIT 0 to determine output column types.
+        """
+        sql_query = params.get("sql_query", "")
+        if not sql_query or not sql_query.strip():
+            # No SQL yet, return empty schema
+            return {}
+
+        try:
+            validate_sql_query(sql_query)
+        except ValueError:
+            return {}
+
+        con = duckdb.connect()
+        try:
+            con.execute("INSTALL spatial; LOAD spatial;")
+
+            # Map input schema keys to table aliases
+            alias_mapping = {
+                "input_layer_1_id": "input_1",
+                "input_layer_2_id": "input_2",
+                "input_layer_3_id": "input_3",
+            }
+
+            # Create mock tables from input schemas
+            for input_key, columns in input_schemas.items():
+                alias = alias_mapping.get(input_key, input_key)
+
+                col_defs = []
+                if columns:
+                    for col_name, col_type in columns.items():
+                        # Normalize geometry columns
+                        if "GEOMETRY" in col_type.upper():
+                            col_defs.append(f'"{col_name}" GEOMETRY')
+                        else:
+                            col_defs.append(f'"{col_name}" {col_type}')
+
+                if not col_defs:
+                    # Schema not yet available — create table with placeholder
+                    col_defs = ['"_placeholder" INTEGER']
+
+                create_sql = (
+                    f'CREATE TABLE "{alias}" ({", ".join(col_defs)})'
+                )
+                con.execute(create_sql)
+
+            # Execute the user's SQL with LIMIT 0 to get column types
+            limited_sql = f"SELECT * FROM ({sql_query}) _pred LIMIT 0"
+            result = con.execute(limited_sql)
+
+            # Extract column names and types from the result description
+            columns: dict[str, str] = {}
+            if result.description:
+                for col_desc in result.description:
+                    col_name = col_desc[0]
+                    # DuckDB returns Python type objects in description[1]
+                    # We need the actual DuckDB type string
+                    columns[col_name] = "VARCHAR"  # Default
+
+                # Get actual types via DESCRIBE
+                describe_result = con.execute(
+                    f"DESCRIBE SELECT * FROM ({sql_query}) _pred LIMIT 0"
+                )
+                for row in describe_result.fetchall():
+                    col_name, col_type = row[0], row[1]
+                    columns[col_name] = col_type
+
+            return columns
+
+        except Exception as e:
+            logger.warning(f"Schema prediction failed for custom SQL: {e}")
+            return {}
+        finally:
+            con.close()
+
+    def _register_layer_as_view(
+        self: Self,
+        con: duckdb.DuckDBPyConnection,
+        alias: str,
+        parquet_path: str,
+    ) -> None:
+        """Register a parquet file as a named view in DuckDB.
+
+        Args:
+            con: DuckDB connection
+            alias: Table alias (e.g., "input_1", "buildings")
+            parquet_path: Path to the parquet file
+        """
+        # Sanitize alias to prevent SQL injection (only allow alphanumeric + underscore)
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", alias):
+            raise ValueError(
+                f"Invalid table alias '{alias}': must contain only letters, "
+                f"numbers, and underscores, and start with a letter or underscore"
+            )
+
+        con.execute(
+            f'CREATE VIEW "{alias}" AS SELECT * FROM read_parquet(\'{parquet_path}\')'
+        )
+        logger.info(f"Registered view '{alias}' from {parquet_path}")
+
+    def process(
+        self: Self, params: CustomSqlToolParams, temp_dir: Path
+    ) -> tuple[Path, DatasetMetadata]:
+        """Execute the custom SQL query against input layers.
+
+        1. Validate the SQL query
+        2. Export and register each input layer as a DuckDB view
+        3. Execute the user's SELECT statement
+        4. Write result to parquet
+        """
+        # Step 1: Validate SQL
+        validate_sql_query(params.sql_query)
+
+        # Create a fresh in-memory DuckDB for isolated execution
+        con = duckdb.connect()
+        try:
+            con.execute("INSTALL spatial; LOAD spatial;")
+
+            # Step 2: Register connected inputs as views
+            layer_inputs = [
+                ("input_1", params.input_layer_1_id, params.input_layer_1_filter),
+                ("input_2", params.input_layer_2_id, params.input_layer_2_filter),
+                ("input_3", params.input_layer_3_id, params.input_layer_3_filter),
+            ]
+
+            for alias, layer_id, layer_filter in layer_inputs:
+                if not layer_id:
+                    continue
+
+                parquet_path = self.export_layer_to_parquet(
+                    layer_id=layer_id,
+                    user_id=params.user_id,
+                    cql_filter=layer_filter,
+                    scenario_id=params.scenario_id,
+                    project_id=params.project_id,
+                )
+                self._register_layer_as_view(con, alias, parquet_path)
+
+            # Step 3: Register additional layers
+            if params.additional_layers:
+                for layer_info in params.additional_layers:
+                    layer_id = layer_info.get("layerId")
+                    alias = layer_info.get("alias")
+                    if not layer_id or not alias:
+                        continue
+
+                    parquet_path = self.export_layer_to_parquet(
+                        layer_id=layer_id,
+                        user_id=params.user_id,
+                    )
+                    self._register_layer_as_view(con, alias, parquet_path)
+
+            # Step 4: Execute the user's SQL query
+            logger.info(f"Executing custom SQL: {params.sql_query[:200]}...")
+            output_path = temp_dir / "output.parquet"
+
+            con.execute(
+                f"COPY ({params.sql_query}) TO '{output_path}' "
+                f"(FORMAT PARQUET, COMPRESSION ZSTD)"
+            )
+
+            logger.info(f"Custom SQL result written to {output_path}")
+
+            # Detect geometry to choose source_type
+            has_geometry = False
+            try:
+                col_info = con.execute(
+                    f"DESCRIBE SELECT * FROM read_parquet('{output_path}') LIMIT 0"
+                ).fetchall()
+                has_geometry = any(
+                    "GEOMETRY" in row[1].upper() for row in col_info
+                )
+            except Exception:
+                pass
+
+            metadata = DatasetMetadata(
+                path=str(output_path),
+                source_type="vector" if has_geometry else "tabular",
+            )
+
+            return output_path, metadata
+
+        finally:
+            con.close()
+
+
+def main(params: CustomSqlToolParams) -> dict:
+    """Windmill entry point for custom SQL tool.
+
+    Args:
+        params: Parameters matching CustomSqlToolParams schema
+
+    Returns:
+        Dict with output layer metadata
+    """
+    runner = CustomSqlToolRunner()
+    runner.init_from_env()
+
+    try:
+        return runner.run(params)
+    finally:
+        runner.cleanup()

@@ -292,6 +292,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
               layerId: layer.layer_id, // Use layer_id (UUID) as main identifier
               layerName: layer.name,
               geometryType: layer.feature_layer_geometry_type || undefined,
+              layerType: (layer.type as "feature" | "table" | "raster") || undefined,
               // Inherit filter from project layer (one-way copy)
               filter: inheritedFilter,
               filterInitialized: true,
@@ -330,6 +331,7 @@ export default function DatasetNodeSettings({ node, projectLayers = [], onBack }
               layerId: layer.id,
               layerName: layer.name,
               geometryType: layer.feature_layer_geometry_type || undefined,
+              layerType: (layer.type as "feature" | "table" | "raster") || undefined,
               // No filter inheritance for external datasets
               filter: undefined,
               filterInitialized: true,

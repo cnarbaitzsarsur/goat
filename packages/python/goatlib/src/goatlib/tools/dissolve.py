@@ -152,7 +152,8 @@ class DissolveToolRunner(BaseToolRunner[DissolveToolParams]):
                 columns[field] = input_layer[field]
 
         # Add count column (always present)
-        columns["count"] = "BIGINT"
+        count_col = cls.unique_column_name(columns, "count")
+        columns[count_col] = "BIGINT"
 
         # Add statistics columns
         field_statistics = params.get("field_statistics") or []
@@ -164,8 +165,8 @@ class DissolveToolRunner(BaseToolRunner[DissolveToolParams]):
                 # count is already added above
                 continue
             elif field:
-                # Use custom result_name if provided, otherwise generate default
-                col_name = result_name if result_name else f"{field}_{operation}"
+                base_name = result_name if result_name else f"{field}_{operation}"
+                col_name = cls.unique_column_name(columns, base_name)
                 columns[col_name] = "DOUBLE"
 
         # Add geometry

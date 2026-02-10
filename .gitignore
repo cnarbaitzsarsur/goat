@@ -31,6 +31,7 @@ build
 # misc
 .DS_Store
 *.pem
+compose.override.yaml
 
 # local env files
 .env

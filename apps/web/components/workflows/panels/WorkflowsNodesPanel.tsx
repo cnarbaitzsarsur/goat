@@ -207,11 +207,21 @@ const ToolsTabContent: React.FC<ToolsTabContentProps> = ({ onDragStart }) => {
     onDragStart(event, "dataset");
   };
 
+  // Handle drag start for Export Dataset node
+  const handleExportDragStart = (event: React.DragEvent) => {
+    onDragStart(event, "export");
+  };
+
+  // Handle drag start for Custom SQL node (creates a tool node with processId "custom_sql")
+  const handleCustomSqlDragStart = (event: React.DragEvent) => {
+    onDragStart(event, "tool", "custom_sql");
+  };
+
   return (
     <Stack spacing={4} sx={{ p: 3 }}>
-      {/* Data Input Section - single Add Dataset node */}
+      {/* Data I/O Section - Dataset input and Export output */}
       <Box sx={{ mb: 4 }}>
-        <SettingsGroupHeader label={t("data_input")} />
+        <SettingsGroupHeader label={t("data_io")} />
         <Grid container spacing={4}>
           <Grid item xs={6}>
             <Card
@@ -235,6 +245,60 @@ const ToolsTabContent: React.FC<ToolsTabContentProps> = ({ onDragStart }) => {
                 title={
                   <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
                     {t("add_dataset")}
+                  </Typography>
+                }
+              />
+            </Card>
+          </Grid>
+          <Grid item xs={6}>
+            <Card
+              draggable
+              onDragStart={handleExportDragStart}
+              sx={{
+                cursor: "grab",
+                maxWidth: "130px",
+                borderRadius: "6px",
+                "&:active": { cursor: "grabbing" },
+              }}>
+              <CardHeader
+                sx={{
+                  px: 2,
+                  py: 4,
+                  ".MuiCardHeader-content": {
+                    width: "100%",
+                    color: theme.palette.text.secondary,
+                  },
+                }}
+                title={
+                  <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
+                    {t("export_dataset")}
+                  </Typography>
+                }
+              />
+            </Card>
+          </Grid>
+          <Grid item xs={6}>
+            <Card
+              draggable
+              onDragStart={handleCustomSqlDragStart}
+              sx={{
+                cursor: "grab",
+                maxWidth: "130px",
+                borderRadius: "6px",
+                "&:active": { cursor: "grabbing" },
+              }}>
+              <CardHeader
+                sx={{
+                  px: 2,
+                  py: 4,
+                  ".MuiCardHeader-content": {
+                    width: "100%",
+                    color: theme.palette.text.secondary,
+                  },
+                }}
+                title={
+                  <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
+                    {t("custom_sql")}
                   </Typography>
                 }
               />

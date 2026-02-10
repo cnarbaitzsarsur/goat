@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Box } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMap } from "react-map-gl/maplibre";
 
 import { useDatasetCollectionItems } from "@/lib/api/layers";
@@ -211,54 +211,60 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
   /**
    * Build additional targets for multi-layer filtering
    */
-  const buildAdditionalTargets = (filterValues: string[]) => {
-    const targetLayers = rawConfig?.options?.target_layers;
-    if (!targetLayers?.length || !filterValues.length) return undefined;
+  const buildAdditionalTargets = useCallback(
+    (filterValues: string[]) => {
+      const targetLayers = rawConfig?.options?.target_layers;
+      if (!targetLayers?.length || !filterValues.length) return undefined;
 
-    return targetLayers
-      .map((target) => {
-        const targetLayer = projectLayers.find((l) => l.id === target.layer_project_id);
-        if (!targetLayer) return null;
+      return targetLayers
+        .map((target) => {
+          const targetLayer = projectLayers.find((l) => l.id === target.layer_project_id);
+          if (!targetLayer) return null;
 
-        return {
-          layer_id: targetLayer.id,
-          filter: {
-            op: "or",
-            args: filterValues.map((value) => ({
-              op: "=",
-              args: [{ property: target.column_name }, value],
-            })),
-          },
-        };
-      })
-      .filter(Boolean) as { layer_id: number; filter: object }[];
-  };
+          return {
+            layer_id: targetLayer.id,
+            filter: {
+              op: "or",
+              args: filterValues.map((value) => ({
+                op: "=",
+                args: [{ property: target.column_name }, value],
+              })),
+            },
+          };
+        })
+        .filter(Boolean) as { layer_id: number; filter: object }[];
+    },
+    [projectLayers, rawConfig?.options?.target_layers]
+  );
 
   /**
    * Build additional targets for range filter
    */
-  const buildAdditionalTargetsRange = (min: number, max: number) => {
-    const targetLayers = rawConfig?.options?.target_layers;
-    if (!targetLayers?.length) return undefined;
+  const buildAdditionalTargetsRange = useCallback(
+    (min: number, max: number) => {
+      const targetLayers = rawConfig?.options?.target_layers;
+      if (!targetLayers?.length) return undefined;
 
-    return targetLayers
-      .map((target) => {
-        const targetLayer = projectLayers.find((l) => l.id === target.layer_project_id);
-        if (!targetLayer) return null;
+      return targetLayers
+        .map((target) => {
+          const targetLayer = projectLayers.find((l) => l.id === target.layer_project_id);
+          if (!targetLayer) return null;
 
-        return {
-          layer_id: targetLayer.id,
-          filter: {
-            op: "and",
-            args: [
-              { op: ">=", args: [{ property: target.column_name }, min] },
-              { op: "<=", args: [{ property: target.column_name }, max] },
-            ],
-          },
-        };
-      })
-      .filter(Boolean) as { layer_id: number; filter: object }[];
-  };
+          return {
+            layer_id: targetLayer.id,
+            filter: {
+              op: "and",
+              args: [
+                { op: ">=", args: [{ property: target.column_name }, min] },
+                { op: "<=", args: [{ property: target.column_name }, max] },
+              ],
+            },
+          };
+        })
+        .filter(Boolean) as { layer_id: number; filter: object }[];
+    },
+    [projectLayers, rawConfig?.options?.target_layers]
+  );
 
   /**
    * Keep store in sync with selected values (for select, chips, checkbox)
@@ -310,6 +316,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
       }
     }
   }, [
+    buildAdditionalTargets,
     dispatch,
     existingFilter,
     geometryData,
@@ -317,11 +324,9 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
     isRangeLayout,
     layer,
     map,
-    rawConfig?.options?.target_layers,
     rawConfig?.options?.zoom_to_selection,
     rawConfig.setup.column_name,
     selectedValues,
-    projectLayers,
   ]);
 
   /**
@@ -368,15 +373,14 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
       }
     }
   }, [
+    buildAdditionalTargetsRange,
     dispatch,
     existingFilter,
     id,
     isRangeLayout,
     layer,
     rawConfig?.setup?.column_name,
-    rawConfig?.options?.target_layers,
     selectedRange,
-    projectLayers,
   ]);
 
   return (

@@ -23,7 +23,7 @@ class WorkflowNode(BaseModel):
     """A node in the workflow graph."""
 
     id: str
-    type: str  # "dataset", "tool", "result"
+    type: str  # "dataset", "tool", "export", "textAnnotation"
     data: dict[str, Any]
 
 
@@ -168,6 +168,24 @@ def build_tool_inputs(
                     # Convert handle name: input_layer_id -> input_layer_filter
                     filter_key = target_handle.replace("_id", "_filter")
                     inputs[filter_key] = filter_config
+
+    # For custom_sql: compact sparse numbered inputs so they start at 1.
+    # E.g. if only input_layer_2_id is connected, remap it to input_layer_1_id
+    # so the SQL alias "input_1" always refers to the first connected layer.
+    process_id = node_data.get("processId")
+    if process_id == "custom_sql":
+        numbered_keys = sorted(
+            k for k in list(inputs) if k.startswith("input_layer_") and k.endswith("_id")
+        )
+        for new_idx, key in enumerate(numbered_keys, start=1):
+            new_key = f"input_layer_{new_idx}_id"
+            if key != new_key:
+                inputs[new_key] = inputs.pop(key)
+                # Also remap the corresponding filter key
+                old_filter = key.replace("_id", "_filter")
+                new_filter = new_key.replace("_id", "_filter")
+                if old_filter in inputs:
+                    inputs[new_filter] = inputs.pop(old_filter)
 
     # Add workflow context
     inputs["user_id"] = params.user_id
@@ -340,7 +358,7 @@ def main(
     for node in sorted_nodes:
         node_type = node.get("data", {}).get("type")
 
-        # Skip non-tool nodes (datasets, results)
+        # Skip non-tool nodes (datasets, results, exports)
         if node_type != "tool":
             continue
 
@@ -392,6 +410,100 @@ def main(
             )
             # Stop execution on error - downstream nodes depend on this
             break
+
+    print(
+        f"[workflow_runner] Tool nodes complete: {len(results)} results, {len(errors)} errors"
+    )
+
+    # Finalize export nodes (only if no errors from tool execution)
+    if not errors:
+        export_nodes = [
+            n for n in sorted_nodes if n.get("data", {}).get("type") == "export"
+        ]
+        if export_nodes:
+            print(f"[workflow_runner] Processing {len(export_nodes)} export node(s)...")
+
+        for export_node in export_nodes:
+            export_node_id = export_node["id"]
+            export_data = export_node.get("data", {})
+            dataset_name = export_data.get("datasetName", "").strip()
+
+            if not dataset_name:
+                print(
+                    f"[workflow_runner] Export node {export_node_id}: no dataset name, skipping"
+                )
+                continue
+
+            # Find the upstream node connected to this export node
+            incoming_edge = next(
+                (e for e in edges if e["target"] == export_node_id), None
+            )
+            if not incoming_edge:
+                print(
+                    f"[workflow_runner] Export node {export_node_id}: no incoming edge, skipping"
+                )
+                continue
+
+            source_node_id = incoming_edge["source"]
+
+            # Verify the source node has a temp result
+            source_result = results.get(source_node_id)
+            if not source_result or not source_result.get("temp_layer_id"):
+                print(
+                    f"[workflow_runner] Export node {export_node_id}: "
+                    f"source {source_node_id} has no temp result, skipping"
+                )
+                continue
+
+            print(
+                f"[workflow_runner] Finalizing export node {export_node_id} "
+                f"(source={source_node_id}, name={dataset_name})"
+            )
+
+            try:
+                finalize_inputs = {
+                    "user_id": params.user_id,
+                    "workflow_id": params.workflow_id,
+                    "node_id": source_node_id,  # Source node's temp dir
+                    "export_node_id": export_node_id,  # For status tracking
+                    "project_id": params.project_id,
+                    "folder_id": params.folder_id,
+                    "layer_name": dataset_name,
+                }
+
+                job_id, result = run_tool_node(
+                    export_node_id, "finalize_layer", finalize_inputs
+                )
+
+                node_jobs[export_node_id] = job_id
+                results[export_node_id] = result
+
+                if "error" in result:
+                    print(
+                        f"[workflow_runner] Export node {export_node_id} failed: "
+                        f"{result.get('error')}"
+                    )
+                    errors.append(
+                        {
+                            "node_id": export_node_id,
+                            "error": result.get("error"),
+                        }
+                    )
+                else:
+                    print(
+                        f"[workflow_runner] Export node {export_node_id} completed: "
+                        f"layer_id={result.get('layer_id')}"
+                    )
+
+            except Exception as e:
+                print(f"[workflow_runner] Export node {export_node_id} failed: {e}")
+                logger.error(f"Export node {export_node_id} failed: {e}")
+                errors.append(
+                    {
+                        "node_id": export_node_id,
+                        "error": str(e),
+                    }
+                )
 
     print(
         f"[workflow_runner] Workflow complete: {len(results)} results, {len(errors)} errors"

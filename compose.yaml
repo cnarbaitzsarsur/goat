@@ -291,6 +291,8 @@ services:
     image: redis:7.4.1-alpine
     networks:
       - goat
+    ports:
+      - 6379:6379
     command: redis-server --maxmemory 100mb --maxmemory-policy allkeys-lru
 
   # ===========================================================================

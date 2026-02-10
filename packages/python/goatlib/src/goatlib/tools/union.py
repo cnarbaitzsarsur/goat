@@ -134,8 +134,8 @@ class UnionToolRunner(BaseToolRunner[UnionToolParams]):
         for col, dtype in overlay_layer.items():
             if col == "geometry":
                 continue  # Skip overlay geometry
-            # Add prefix if column exists in input
-            out_col = f"{overlay_prefix}{col}" if col in columns else col
+            base = f"{overlay_prefix}{col}" if col in columns else col
+            out_col = cls.unique_column_name(columns, base)
             columns[out_col] = dtype
 
         return columns

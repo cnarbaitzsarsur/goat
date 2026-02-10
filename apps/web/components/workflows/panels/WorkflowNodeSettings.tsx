@@ -7,7 +7,20 @@
  * For tool nodes, displays the same inputs as GenericTool.
  * For dataset nodes, delegates to DatasetNodeSettings.
  */
-import { Box, Button, Chip, CircularProgress, Divider, Stack, Typography, useTheme } from "@mui/material";
+import { CheckCircle as CheckCircleIcon } from "@mui/icons-material";
+import {
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControlLabel,
+  Stack,
+  TextField,
+  Typography,
+  useTheme,
+} from "@mui/material";
 import { useEdges } from "@xyflow/react";
 import { formatDistance } from "date-fns";
 import { useParams } from "next/navigation";
@@ -36,7 +49,7 @@ import {
   processInputsWithSections,
 } from "@/lib/utils/ogc-utils";
 import type { ProjectLayer } from "@/lib/validations/project";
-import type { WorkflowNode } from "@/lib/validations/workflow";
+import type { ExportNodeData, WorkflowNode } from "@/lib/validations/workflow";
 
 import type { ProcessedSection } from "@/types/map/ogc-processes";
 
@@ -51,6 +64,7 @@ import { GenericInput } from "@/components/map/panels/toolbox/generic/inputs";
 import { useWorkflowExecutionContext } from "@/components/workflows/context/WorkflowExecutionContext";
 import SaveDatasetDialog from "@/components/workflows/dialogs/SaveDatasetDialog";
 import DatasetNodeSettings from "@/components/workflows/panels/DatasetNodeSettings";
+import SqlToolSettings from "@/components/workflows/panels/SqlToolSettings";
 
 // Map section icons from backend to ICON_NAME
 const SECTION_ICON_MAP: Record<string, ICON_NAME> = {
@@ -705,6 +719,41 @@ export default function WorkflowNodeSettings({
     return <DatasetNodeSettings node={node} projectLayers={layers} onBack={onBack} />;
   }
 
+  // Render export node settings (inline, same structure as tool nodes)
+  if (node.type === "export" && node.data.type === "export") {
+    const exportData = node.data as ExportNodeData;
+
+    // Find upstream tool node
+    const upstreamInfo = (() => {
+      const incomingEdge = edges.find((e) => e.target === node.id);
+      if (!incomingEdge) return null;
+      const sourceNode = nodes.find((n) => n.id === incomingEdge.source);
+      if (!sourceNode) return null;
+      return {
+        label: (sourceNode.data as { label?: string }).label || sourceNode.id,
+      };
+    })();
+
+    return (
+      <ExportNodeSettingsInline
+        node={node}
+        exportData={exportData}
+        nodeStatus={nodeStatus}
+        upstreamInfo={upstreamInfo}
+        onBack={onBack}
+      />
+    );
+  }
+
+  // Render Custom SQL tool settings (special case)
+  if (
+    node.type === "tool" &&
+    node.data.type === "tool" &&
+    node.data.processId === "custom_sql"
+  ) {
+    return <SqlToolSettings node={node} onBack={onBack} />;
+  }
+
   // Render tool node settings
   if (node.type === "tool" && node.data.type === "tool") {
     // Loading state
@@ -1023,6 +1072,194 @@ export default function WorkflowNodeSettings({
         <Typography variant="body2" color="text.secondary">
           {t("unknown_node_type")}
         </Typography>
+      }
+    />
+  );
+}
+
+// ----- Export Node Settings (inline sub-component) -----
+
+interface ExportNodeSettingsInlineProps {
+  node: WorkflowNode;
+  exportData: ExportNodeData;
+  nodeStatus: string | undefined;
+  upstreamInfo: { label: string } | null;
+  onBack: () => void;
+}
+
+function ExportNodeSettingsInline({
+  node,
+  exportData,
+  nodeStatus,
+  upstreamInfo,
+  onBack,
+}: ExportNodeSettingsInlineProps) {
+  const { t } = useTranslation("common");
+  const theme = useTheme();
+  const dispatch = useDispatch<AppDispatch>();
+
+  // Local state for form values — provides instant UI updates.
+  // Redux is updated as a side effect (same pattern as tool nodes).
+  const [datasetName, setDatasetName] = useState(exportData.datasetName || "");
+  const [addToProject, setAddToProject] = useState(exportData.addToProject);
+  const [overwritePrevious, setOverwritePrevious] = useState(exportData.overwritePrevious);
+
+  // Persist a field change to Redux (side effect, not driving UI)
+  const syncToRedux = useCallback(
+    (field: keyof ExportNodeData, value: unknown) => {
+      dispatch(
+        updateNode({
+          id: node.id,
+          changes: {
+            data: {
+              ...node.data,
+              [field]: value,
+            },
+          },
+        })
+      );
+    },
+    [dispatch, node.id, node.data]
+  );
+
+  const handleDatasetNameChange = useCallback(
+    (e: { target: { value: string } }) => {
+      const val = e.target.value;
+      setDatasetName(val);
+      syncToRedux("datasetName", val);
+    },
+    [syncToRedux]
+  );
+
+  const handleAddToProjectChange = useCallback(
+    (_: React.SyntheticEvent, checked: boolean) => {
+      setAddToProject(checked);
+      syncToRedux("addToProject", checked);
+    },
+    [syncToRedux]
+  );
+
+  const handleOverwriteChange = useCallback(
+    (_: React.SyntheticEvent, checked: boolean) => {
+      setOverwritePrevious(checked);
+      syncToRedux("overwritePrevious", checked);
+    },
+    [syncToRedux]
+  );
+
+  return (
+    <Container
+      header={<ToolsHeader onBack={onBack} title={t("export_dataset")} />}
+      disablePadding={false}
+      body={
+        <Box sx={{ display: "flex", flexDirection: "column" }}>
+          {/* Description */}
+          <Typography variant="body2" sx={{ fontStyle: "italic", mb: theme.spacing(4) }}>
+            {t("export_dataset_description")}
+          </Typography>
+
+          {/* Execution Status Section */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>
+              {t("execution_status")}
+            </Typography>
+            <Divider sx={{ mb: 1.5 }} />
+            <Chip
+              label={nodeStatus ? t(nodeStatus) : t("idle")}
+              size="small"
+              color={
+                nodeStatus === "completed"
+                  ? "primary"
+                  : nodeStatus === "failed"
+                    ? "error"
+                    : nodeStatus === "running"
+                      ? "warning"
+                      : "default"
+              }
+              variant={nodeStatus ? "filled" : "outlined"}
+              sx={{ fontWeight: 600, textTransform: "uppercase" }}
+            />
+          </Box>
+
+          {/* Parameters Section */}
+          <Box sx={{ mt: 3, mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>
+              {t("parameters")}
+            </Typography>
+            <Divider sx={{ mb: 1.5 }} />
+          </Box>
+
+          {/* Source connection info */}
+          {upstreamInfo && (
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                {t("receives_output_from")}:
+              </Typography>
+              <Typography variant="body2" fontWeight="bold">
+                {t(upstreamInfo.label, { defaultValue: upstreamInfo.label })}
+              </Typography>
+            </Stack>
+          )}
+
+          {/* Dataset name */}
+          <Stack spacing={1} sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              {t("dataset_name")}
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={t("enter_dataset_name")}
+              value={datasetName}
+              onChange={handleDatasetNameChange}
+              inputProps={{
+                style: { fontSize: "0.875rem" },
+              }}
+            />
+          </Stack>
+
+          {/* Options */}
+          <FormControlLabel
+            control={<Checkbox checked={addToProject} onChange={handleAddToProjectChange} size="small" />}
+            label={<Typography variant="body2">{t("add_to_project")}</Typography>}
+            sx={{ ml: 0, mb: 0.5 }}
+          />
+
+          <FormControlLabel
+            control={<Checkbox checked={overwritePrevious} onChange={handleOverwriteChange} size="small" />}
+            label={<Typography variant="body2">{t("overwrite_on_rerun")}</Typography>}
+            sx={{ ml: 0 }}
+          />
+
+          {/* Completed state info */}
+          {nodeStatus === "completed" && exportData.exportedLayerId && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>
+                {t("result")}
+              </Typography>
+              <Divider sx={{ mb: 1.5 }} />
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <CheckCircleIcon sx={{ fontSize: 16, color: "success.main" }} />
+                <Typography variant="body2" color="success.main" fontWeight="bold">
+                  {t("dataset_exported_successfully")}
+                </Typography>
+              </Stack>
+            </Box>
+          )}
+
+          {/* Error state */}
+          {nodeStatus === "failed" && exportData.error && (
+            <Box sx={{ mt: 3, mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>
+                {t("result")}
+              </Typography>
+              <Divider sx={{ mb: 1.5 }} />
+              <Typography variant="body2" color="error.main">
+                {exportData.error}
+              </Typography>
+            </Box>
+          )}
+        </Box>
       }
     />
   );

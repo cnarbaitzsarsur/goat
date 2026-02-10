@@ -94,10 +94,22 @@ function getNodeOutputType(
     return { dataType: undefined };
   }
 
-  // Dataset nodes output vector data (we assume all imported layers are vector)
+  // Dataset nodes - output type depends on the layer type
   if (node.data.type === "dataset") {
-    // TODO: In the future, could get geometry type from layer metadata
+    // If layerType is explicitly set, use it
+    if (node.data.layerType === "table") {
+      return { dataType: "table" };
+    }
+    // If no geometry type, it's likely a table
+    if (node.data.layerId && !node.data.geometryType) {
+      return { dataType: "table" };
+    }
     return { dataType: "vector" };
+  }
+
+  // Export nodes don't produce output
+  if (node.data.type === "export") {
+    return { dataType: undefined };
   }
 
   // Tool nodes - get from process description
@@ -106,6 +118,9 @@ function getNodeOutputType(
     if (process?.outputs?.result) {
       return extractOutputDataType(process.outputs.result);
     }
+    // All tools output vector data — default to vector even if process
+    // description hasn't loaded yet (prevents connection rejection during loading)
+    return { dataType: "vector" };
   }
 
   return { dataType: undefined };
@@ -125,6 +140,11 @@ function getNodeInputType(
 
   // Dataset nodes don't have inputs
   if (node.data.type === "dataset") {
+    return { dataType: undefined };
+  }
+
+  // Export nodes accept any data (vector or table)
+  if (node.data.type === "export") {
     return { dataType: undefined };
   }
 

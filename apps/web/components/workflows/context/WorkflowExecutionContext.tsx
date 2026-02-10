@@ -15,6 +15,7 @@ interface WorkflowExecutionContextValue {
   nodeStatuses: Record<string, NodeExecutionStatus>;
   nodeExecutionInfo: Record<string, NodeExecutionInfo>;
   tempLayerIds: Record<string, string>;
+  exportedLayerIds: Record<string, string>;
   onSaveNode?: (nodeId: string, layerName?: string) => Promise<string | null>;
 }
 
@@ -23,6 +24,7 @@ const WorkflowExecutionContext = createContext<WorkflowExecutionContextValue>({
   nodeStatuses: {},
   nodeExecutionInfo: {},
   tempLayerIds: {},
+  exportedLayerIds: {},
 });
 
 export interface WorkflowExecutionProviderProps {
@@ -31,6 +33,7 @@ export interface WorkflowExecutionProviderProps {
   nodeStatuses: Record<string, NodeExecutionStatus>;
   nodeExecutionInfo: Record<string, NodeExecutionInfo>;
   tempLayerIds: Record<string, string>;
+  exportedLayerIds: Record<string, string>;
   onSaveNode?: (nodeId: string, layerName?: string) => Promise<string | null>;
 }
 
@@ -40,11 +43,12 @@ export const WorkflowExecutionProvider: React.FC<WorkflowExecutionProviderProps>
   nodeStatuses,
   nodeExecutionInfo,
   tempLayerIds,
+  exportedLayerIds,
   onSaveNode,
 }) => {
   return (
     <WorkflowExecutionContext.Provider
-      value={{ isExecuting, nodeStatuses, nodeExecutionInfo, tempLayerIds, onSaveNode }}>
+      value={{ isExecuting, nodeStatuses, nodeExecutionInfo, tempLayerIds, exportedLayerIds, onSaveNode }}>
       {children}
     </WorkflowExecutionContext.Provider>
   );

@@ -76,6 +76,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
     layerId?: string;
     layerName?: string;
     geometryType?: string;
+    layerType?: string;
     layerCql?: { op: string; args: unknown[] };
   } | null>(null);
 
@@ -92,6 +93,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
     nodeStatuses,
     nodeExecutionInfo,
     tempLayerIds,
+    exportedLayerIds,
     execute,
     cancel,
     finalizeNode,
@@ -191,6 +193,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
         layerId: layer.layer_id, // Use the actual layer ID (UUID)
         layerName: layer.name,
         geometryType: layer.feature_layer_geometry_type || undefined,
+        layerType: layer.type || undefined,
         layerCql: hasValidCql ? (layerCql as { op: string; args: unknown[] }) : undefined,
       };
       event.dataTransfer.setData("application/reactflow", "dataset");
@@ -241,7 +244,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
 
       if (!selectedWorkflowId || !dragDataRef.current || !reactFlowInstance) return;
 
-      const { nodeType, toolId, layerId, layerName, geometryType, layerCql } = dragDataRef.current;
+      const { nodeType, toolId, layerId, layerName, geometryType, layerType, layerCql } = dragDataRef.current;
       dragDataRef.current = null;
 
       // Get canvas position from drop coordinates - use screen coordinates directly
@@ -281,6 +284,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
                 layerId: layerId,
                 layerName: layerName,
                 geometryType: geometryType || undefined,
+                layerType: (layerType as "feature" | "table" | "raster") || undefined,
                 filter: inheritedFilter,
                 filterInitialized: true, // Mark as initialized so settings panel doesn't re-copy
               },
@@ -315,6 +319,22 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
             },
           })
         );
+      } else if (nodeType === "export") {
+        dispatch(
+          addNode({
+            id: `export-${uuidv4()}`,
+            type: "export",
+            position,
+            data: {
+              type: "export",
+              label: "Export Dataset",
+              datasetName: "",
+              addToProject: true,
+              overwritePrevious: false,
+              status: "idle",
+            },
+          })
+        );
       }
     },
     [selectedWorkflowId, reactFlowInstance, dispatch]
@@ -327,6 +347,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
         nodeStatuses={nodeStatuses}
         nodeExecutionInfo={nodeExecutionInfo}
         tempLayerIds={tempLayerIds}
+        exportedLayerIds={exportedLayerIds}
         onSaveNode={finalizeNode}>
         <Box
           sx={{

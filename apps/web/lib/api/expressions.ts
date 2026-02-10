@@ -217,6 +217,86 @@ export async function previewExpressionAsAggregation(
   };
 }
 
+// --- Custom SQL API types and functions ---
+
+export interface ValidateSqlRequest {
+  sql_query: string;
+  table_schemas: Record<string, Record<string, string>>;
+}
+
+export interface ValidateSqlResponse {
+  valid: boolean;
+  errors: string[];
+  columns: Record<string, string>;
+}
+
+export interface PreviewSqlRequest {
+  sql_query: string;
+  layers: Record<string, string>; // alias -> layer_id
+  limit?: number;
+}
+
+export interface PreviewSqlRow {
+  values: Record<string, unknown>;
+}
+
+export interface PreviewSqlResponse {
+  success: boolean;
+  columns: Array<{ name: string; type: string }>;
+  rows: PreviewSqlRow[];
+  total_count?: number | null;
+  error?: string | null;
+}
+
+/**
+ * Validate a SQL SELECT statement against table schemas.
+ * Uses the processes service (same pattern as aggregation-stats).
+ */
+export async function validateSql(request: ValidateSqlRequest): Promise<ValidateSqlResponse> {
+  const response = await apiRequestAuth(`${PROCESSES_API_URL}/validate-sql/execution`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      inputs: {
+        sql_query: request.sql_query,
+        table_schemas: request.table_schemas,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail?.detail || error.detail || "Failed to validate SQL");
+  }
+
+  return response.json();
+}
+
+/**
+ * Preview SQL query results against actual layer data.
+ * Uses the processes service (same pattern as aggregation-stats).
+ */
+export async function previewSql(request: PreviewSqlRequest): Promise<PreviewSqlResponse> {
+  const response = await apiRequestAuth(`${PROCESSES_API_URL}/preview-sql/execution`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      inputs: {
+        sql_query: request.sql_query,
+        layers: request.layers,
+        limit: request.limit ?? 10,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail?.detail || error.detail || "Failed to preview SQL");
+  }
+
+  return response.json();
+}
+
 // Category display names and icons for UI
 export const FUNCTION_CATEGORIES = {
   math: { labelKey: "category_math", icon: "calculator" },

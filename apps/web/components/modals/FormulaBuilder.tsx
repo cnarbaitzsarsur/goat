@@ -35,12 +35,20 @@ import { useTranslation } from "react-i18next";
 
 import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
-import type { ExpressionPreviewResult, FunctionDoc, ValidateExpressionResponse } from "@/lib/api/expressions";
+import type {
+  ExpressionPreviewResult,
+  FunctionDoc,
+  PreviewSqlResponse,
+  ValidateExpressionResponse,
+  ValidateSqlResponse,
+} from "@/lib/api/expressions";
 import {
   FUNCTION_CATEGORIES,
   previewExpressionAsAggregation,
+  previewSql,
   useExpressionFunctions,
   validateExpression,
+  validateSql,
 } from "@/lib/api/expressions";
 
 // Operators definition for the formula builder
@@ -167,6 +175,14 @@ function getFieldTypeIcon(type: string): ICON_NAME {
   return ICON_NAME.DATABASE;
 }
 
+// SQL table definition for SQL mode
+export interface SqlTable {
+  alias: string; // e.g., "input_1", "buildings"
+  fields: FormulaField[]; // Columns in this table
+  layerName?: string; // Human-readable display name
+  layerId?: string; // Layer UUID for preview
+}
+
 // Main FormulaBuilder props
 export interface FormulaBuilderProps {
   open: boolean;
@@ -178,6 +194,8 @@ export interface FormulaBuilderProps {
   collectionId?: string; // For preview functionality
   title?: string;
   showGroupBy?: boolean;
+  mode?: "expression" | "sql"; // Default: "expression"
+  tables?: SqlTable[]; // For SQL mode: available tables with their columns
 }
 
 export default function FormulaBuilder({
@@ -190,17 +208,22 @@ export default function FormulaBuilder({
   collectionId,
   title,
   showGroupBy = true,
+  mode = "expression",
+  tables,
 }: FormulaBuilderProps) {
   const { t } = useTranslation("common");
   const inputRef = useRef<HTMLInputElement>(null);
+  const isSqlMode = mode === "sql";
 
   // State
   const [expression, setExpression] = useState(initialExpression);
   const [functionSearch, setFunctionSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("fields");
+  const [selectedCategory, setSelectedCategory] = useState<string>(isSqlMode ? "tables" : "fields");
   const [selectedFunction, setSelectedFunction] = useState<FunctionDoc | null>(null);
   const [validation, setValidation] = useState<ValidateExpressionResponse | null>(null);
+  const [sqlValidation, setSqlValidation] = useState<ValidateSqlResponse | null>(null);
   const [preview, setPreview] = useState<ExpressionPreviewResult | null>(null);
+  const [sqlPreview, setSqlPreview] = useState<PreviewSqlResponse | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -208,6 +231,7 @@ export default function FormulaBuilder({
   const [groupByColumn, setGroupByColumn] = useState<string>("");
   const [hoveredOperator, setHoveredOperator] = useState<(typeof OPERATORS)[number] | null>(null);
   const [hoveredField, setHoveredField] = useState<FormulaField | null>(null);
+  const [expandedTable, setExpandedTable] = useState<string | null>(tables?.[0]?.alias ?? null);
 
   // Fetch functions only when dialog is open
   const {
@@ -221,17 +245,27 @@ export default function FormulaBuilder({
     return fields.filter((f) => !f.type.toLowerCase().includes("geom"));
   }, [fields]);
 
-  // Reset state when dialog opens
+  // Track dialog open/close transitions
+  const prevOpenRef = useRef(false);
+
+  // Reset state only when dialog transitions from closed to open
+  // (not on every tables/props change while dialog is already open)
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       setExpression(initialExpression);
       setValidation(null);
+      setSqlValidation(null);
       setPreview(null);
+      setSqlPreview(null);
       setSelectedFunction(null);
       setActiveTab(0);
       setGroupByColumn(initialGroupByColumn);
+      setSelectedCategory(isSqlMode ? "tables" : "fields");
+      setExpandedTable(tables?.[0]?.alias ?? null);
+      setCursorPosition(initialExpression.length);
     }
-  }, [open, initialExpression, initialGroupByColumn]);
+    prevOpenRef.current = open;
+  }, [open, initialExpression, initialGroupByColumn, isSqlMode, tables]);
 
   // Filter functions by search (across all categories) and also filter fields
   const filteredFunctionsByCategory = useMemo(() => {
@@ -270,19 +304,38 @@ export default function FormulaBuilder({
     if (!allFunctions) return [];
 
     switch (selectedCategory) {
+      case "tables":
+        // SQL mode: return tables as groups (handled separately in render)
+        return [];
       case "fields":
         return filteredFields.map((f) => ({ type: "field" as const, data: f }));
       case "operators":
         return OPERATORS.map((op) => ({ type: "operator" as const, data: op }));
-      default:
+      default: {
         // Function categories
         const funcs = filteredFunctionsByCategory[selectedCategory] || [];
         return funcs.map((f) => ({ type: "function" as const, data: f }));
+      }
     }
   }, [selectedCategory, filteredFields, filteredFunctionsByCategory, allFunctions]);
 
   // Category list for sidebar
   const categories = useMemo(() => {
+    if (isSqlMode) {
+      const cats = [
+        { key: "tables", label: t("tables"), count: tables?.length || 0 },
+        { key: "operators", label: t("operators"), count: OPERATORS.length },
+      ];
+      // Add function categories
+      Object.entries(FUNCTION_CATEGORIES).forEach(([key, { labelKey }]) => {
+        const count = allFunctions?.[key]?.length || 0;
+        if (count > 0) {
+          cats.push({ key, label: t(labelKey), count });
+        }
+      });
+      return cats;
+    }
+
     const cats = [
       { key: "fields", label: t("fields"), count: fields.length },
       { key: "operators", label: t("operators"), count: OPERATORS.length },
@@ -295,7 +348,7 @@ export default function FormulaBuilder({
       }
     });
     return cats;
-  }, [fields.length, allFunctions, t]);
+  }, [fields.length, allFunctions, t, isSqlMode, tables]);
 
   // Insert text at cursor position
   const insertAtCursor = useCallback(
@@ -382,6 +435,40 @@ export default function FormulaBuilder({
   const handleValidate = useCallback(async () => {
     if (!expression.trim()) {
       setValidation(null);
+      setSqlValidation(null);
+      return;
+    }
+
+    // SQL mode validation
+    if (isSqlMode) {
+      setIsValidating(true);
+      try {
+        // Build table schemas from tables prop
+        const tableSchemas: Record<string, Record<string, string>> = {};
+        if (tables) {
+          for (const table of tables) {
+            const colTypes: Record<string, string> = {};
+            for (const field of table.fields) {
+              colTypes[field.name] = field.type;
+            }
+            tableSchemas[table.alias] = colTypes;
+          }
+        }
+
+        const result = await validateSql({
+          sql_query: expression,
+          table_schemas: tableSchemas,
+        });
+        setSqlValidation(result);
+      } catch (error) {
+        setSqlValidation({
+          valid: false,
+          errors: [String(error)],
+          columns: {},
+        });
+      } finally {
+        setIsValidating(false);
+      }
       return;
     }
 
@@ -431,11 +518,64 @@ export default function FormulaBuilder({
     } finally {
       setIsValidating(false);
     }
-  }, [expression, columnNames, fields, groupByColumn, hasAggregateFunction, t]);
+  }, [expression, columnNames, fields, groupByColumn, hasAggregateFunction, t, isSqlMode, tables]);
 
   // Preview expression using aggregation-stats endpoint
   const handlePreview = useCallback(async () => {
-    if (!expression.trim() || !collectionId) {
+    if (!expression.trim()) {
+      setPreview(null);
+      setSqlPreview(null);
+      return;
+    }
+
+    // SQL mode preview
+    if (isSqlMode) {
+      if (!tables || tables.length === 0) {
+        setSqlPreview(null);
+        return;
+      }
+
+      setIsPreviewing(true);
+      try {
+        // Build layers map from tables
+        const layersMap: Record<string, string> = {};
+        for (const table of tables) {
+          if (table.layerId) {
+            layersMap[table.alias] = table.layerId;
+          }
+        }
+
+        if (Object.keys(layersMap).length === 0) {
+          setSqlPreview({
+            success: false,
+            columns: [],
+            rows: [],
+            error: "No layers available for preview",
+          });
+          return;
+        }
+
+        const result = await previewSql({
+          sql_query: expression,
+          layers: layersMap,
+          limit: 10,
+        });
+        setSqlPreview(result);
+      } catch (error) {
+        setSqlPreview({
+          success: false,
+          columns: [],
+          rows: [],
+          error: String(error),
+        });
+      } finally {
+        setIsPreviewing(false);
+      }
+      return;
+    }
+
+    // Expression mode
+    if (!collectionId) {
       setPreview(null);
       return;
     }
@@ -458,7 +598,7 @@ export default function FormulaBuilder({
     } finally {
       setIsPreviewing(false);
     }
-  }, [expression, collectionId, groupByColumn]);
+  }, [expression, collectionId, groupByColumn, isSqlMode, tables]);
 
   // Debounced validation - re-run when expression or groupByColumn changes
   useEffect(() => {
@@ -467,21 +607,30 @@ export default function FormulaBuilder({
         handleValidate();
       } else {
         setValidation(null);
+        setSqlValidation(null);
       }
     }, 500);
     return () => clearTimeout(timer);
   }, [expression, groupByColumn, handleValidate]);
 
+  // Computed validation state (works for both modes)
+  const isValid = isSqlMode ? sqlValidation?.valid : validation?.valid;
+  const validationErrors = isSqlMode
+    ? sqlValidation?.errors?.map((e) => ({ message: e, code: "SQL_ERROR" })) || []
+    : validation?.errors || [];
+
   // Auto-preview when switching to Preview tab or when groupByColumn changes
   useEffect(() => {
-    if (activeTab === 1 && expression.trim() && collectionId && validation?.valid !== false) {
-      handlePreview();
+    if (activeTab === 1 && expression.trim() && isValid !== false) {
+      if (isSqlMode || collectionId) {
+        handlePreview();
+      }
     }
-  }, [activeTab, expression, collectionId, validation?.valid, groupByColumn, handlePreview]);
+  }, [activeTab, expression, collectionId, isValid, groupByColumn, handlePreview, isSqlMode]);
 
   // Handle apply
   const handleApply = () => {
-    if (validation?.valid || !validation) {
+    if (isValid || isValid === undefined) {
       onApply(expression, groupByColumn || undefined);
       onClose();
     }
@@ -503,16 +652,16 @@ export default function FormulaBuilder({
     if (!expression.trim()) {
       return null;
     }
-    if (validation?.valid) {
+    if (isValid) {
       return (
-        <Tooltip title={t("expression_valid")}>
+        <Tooltip title={isSqlMode ? t("sql_valid") : t("expression_valid")}>
           <Icon iconName={ICON_NAME.CIRCLECHECK} fontSize="small" htmlColor="#4caf50" />
         </Tooltip>
       );
     }
-    if (validation?.valid === false) {
+    if (isValid === false) {
       return (
-        <Tooltip title={validation.errors[0]?.message || t("expression_invalid")}>
+        <Tooltip title={validationErrors[0]?.message || t("expression_invalid")}>
           <Icon iconName={ICON_NAME.XCLOSE} fontSize="small" htmlColor="#f44336" />
         </Tooltip>
       );
@@ -557,14 +706,14 @@ export default function FormulaBuilder({
               onChange={(e) => setExpression(e.target.value)}
               onSelect={handleInputSelect}
               onClick={handleInputSelect}
-              placeholder={t("enter_expression_placeholder")}
+              placeholder={isSqlMode ? t("sql_placeholder") : t("enter_expression_placeholder")}
               sx={{
                 "& .MuiInputBase-input": {
                   fontFamily: "monospace",
                   fontSize: "0.875rem",
                 },
               }}
-              error={validation?.valid === false}
+              error={isValid === false}
             />
             {/* Validation indicator in top-right corner */}
             <Box
@@ -580,18 +729,21 @@ export default function FormulaBuilder({
           </Box>
 
           {/* Error message below editor (only when there's an error) */}
-          {validation?.valid === false && !isValidating && (
+          {isValid === false && !isValidating && (
             <Alert severity="error" sx={{ py: 0.5 }}>
-              {validation.errors.map((err, i) => (
-                <Box key={i}>
-                  <Typography variant="caption">{err.message}</Typography>
-                  {err.suggestion && (
-                    <Typography variant="caption" color="primary" sx={{ display: "block" }}>
-                      {err.suggestion}
-                    </Typography>
-                  )}
-                </Box>
-              ))}
+              {validationErrors.map((err, i) => {
+                const suggestion = "suggestion" in err ? String(err.suggestion) : null;
+                return (
+                  <Box key={i}>
+                    <Typography variant="caption">{err.message}</Typography>
+                    {suggestion && (
+                      <Typography variant="caption" color="primary" sx={{ display: "block" }}>
+                        {suggestion}
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
             </Alert>
           )}
 
@@ -689,6 +841,90 @@ export default function FormulaBuilder({
                           {t("error_loading_functions")}
                         </Typography>
                       </Box>
+                    ) : selectedCategory === "tables" && isSqlMode && tables ? (
+                      /* SQL mode: show tables as expandable groups */
+                      <List dense disablePadding>
+                        {tables.map((table) => {
+                          const isExpanded = expandedTable === table.alias;
+                          const filteredTableFields = functionSearch
+                            ? table.fields.filter((f) =>
+                                f.name.toLowerCase().includes(functionSearch.toLowerCase())
+                              )
+                            : table.fields;
+
+                          return (
+                            <React.Fragment key={table.alias}>
+                              <ListItem disablePadding>
+                                <ListItemButton
+                                  onClick={() => setExpandedTable(isExpanded ? null : table.alias)}
+                                  sx={{
+                                    py: 0.75,
+                                    px: 1.5,
+                                    bgcolor: isExpanded ? "action.selected" : "transparent",
+                                  }}
+                                  dense>
+                                  <ListItemIcon sx={{ minWidth: 24 }}>
+                                    <Icon
+                                      iconName={ICON_NAME.TABLE}
+                                      sx={{ fontSize: "1rem" }}
+                                      color="primary"
+                                    />
+                                  </ListItemIcon>
+                                  <ListItemText
+                                    primary={
+                                      <Typography variant="body2" fontWeight="bold" fontFamily="monospace" fontSize="0.8rem">
+                                        {table.alias}
+                                      </Typography>
+                                    }
+                                    secondary={table.layerName ? (
+                                      <Typography variant="caption" color="text.secondary" noWrap>
+                                        {table.layerName}
+                                      </Typography>
+                                    ) : undefined}
+                                  />
+                                  <Typography variant="caption" color="text.secondary">
+                                    {table.fields.length}
+                                  </Typography>
+                                </ListItemButton>
+                              </ListItem>
+                              {isExpanded && filteredTableFields.map((field) => (
+                                <ListItem key={`${table.alias}.${field.name}`} disablePadding>
+                                  <ListItemButton
+                                    onClick={() => insertField(`${table.alias}.${field.name}`)}
+                                    onMouseEnter={() => setHoveredField(field)}
+                                    onMouseLeave={() => setHoveredField(null)}
+                                    sx={{ py: 0.25, pl: 4, pr: 1.5 }}
+                                    dense>
+                                    <ListItemIcon sx={{ minWidth: 24 }}>
+                                      <Icon
+                                        iconName={getFieldTypeIcon(field.type)}
+                                        sx={{ fontSize: "0.875rem" }}
+                                        color="action"
+                                      />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                      primary={
+                                        <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
+                                          {field.name}
+                                        </Typography>
+                                      }
+                                    />
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        fontSize: "0.65rem",
+                                        color: "text.disabled",
+                                        fontFamily: "monospace",
+                                      }}>
+                                      {field.type}
+                                    </Typography>
+                                  </ListItemButton>
+                                </ListItem>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
+                      </List>
                     ) : categoryItems.length === 0 ? (
                       <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
                         {t("no_items_found")}
@@ -968,8 +1204,8 @@ export default function FormulaBuilder({
                 </Paper>
               </Stack>
 
-              {/* Group By Panel - single select */}
-              {showGroupBy && (
+              {/* Group By Panel - single select (hidden in SQL mode) */}
+              {showGroupBy && !isSqlMode && (
                 <Paper variant="outlined" sx={{ p: 1.5 }}>
                   <Stack direction="row" spacing={2} alignItems="center">
                     <Stack
@@ -1044,7 +1280,89 @@ export default function FormulaBuilder({
                 </Box>
               )}
 
-              {!isPreviewing && preview && (
+              {/* SQL mode preview - tabular results */}
+              {!isPreviewing && isSqlMode && sqlPreview && (
+                <>
+                  {sqlPreview.success && sqlPreview.columns.length > 0 ? (
+                    <Stack spacing={2}>
+                      {sqlPreview.total_count !== null && sqlPreview.total_count !== undefined && (
+                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right" }}>
+                          {t("total_rows")}: {sqlPreview.total_count}
+                        </Typography>
+                      )}
+                      <Paper variant="outlined" sx={{ overflow: "auto", maxHeight: 300 }}>
+                        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", fontFamily: "monospace" }}>
+                          <Box component="thead">
+                            <Box component="tr" sx={{ bgcolor: "action.hover" }}>
+                              {sqlPreview.columns.map((col) => (
+                                <Box
+                                  component="th"
+                                  key={col.name}
+                                  sx={{
+                                    px: 1.5,
+                                    py: 0.75,
+                                    textAlign: "left",
+                                    borderBottom: 1,
+                                    borderColor: "divider",
+                                    fontWeight: "bold",
+                                    whiteSpace: "nowrap",
+                                  }}>
+                                  {col.name}
+                                  <Typography
+                                    component="span"
+                                    variant="caption"
+                                    sx={{ display: "block", color: "text.secondary", fontSize: "0.65rem" }}>
+                                    {col.type}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Box>
+                          <Box component="tbody">
+                            {sqlPreview.rows.map((row, rowIdx) => (
+                              <Box
+                                component="tr"
+                                key={rowIdx}
+                                sx={{ bgcolor: rowIdx % 2 === 0 ? "transparent" : "action.hover" }}>
+                                {sqlPreview.columns.map((col) => (
+                                  <Box
+                                    component="td"
+                                    key={col.name}
+                                    sx={{
+                                      px: 1.5,
+                                      py: 0.5,
+                                      borderBottom: 1,
+                                      borderColor: "divider",
+                                      maxWidth: 200,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}>
+                                    {row.values[col.name] !== null && row.values[col.name] !== undefined
+                                      ? String(row.values[col.name])
+                                      : <Typography component="span" variant="caption" color="text.disabled">NULL</Typography>
+                                    }
+                                  </Box>
+                                ))}
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+                      </Paper>
+                      <Typography variant="caption" color="text.secondary">
+                        {t("showing_rows", { count: sqlPreview.rows.length })}
+                      </Typography>
+                    </Stack>
+                  ) : (
+                    <Alert severity="error">
+                      <Typography variant="body2">{sqlPreview.error || t("no_results")}</Typography>
+                    </Alert>
+                  )}
+                </>
+              )}
+
+              {/* Expression mode preview */}
+              {!isPreviewing && !isSqlMode && preview && (
                 <>
                   {!preview.error ? (
                     <Stack spacing={2}>
@@ -1171,7 +1489,7 @@ export default function FormulaBuilder({
           <Button onClick={onClose} color="inherit" variant="outlined">
             {t("cancel")}
           </Button>
-          <Button onClick={handleApply} variant="contained" disabled={validation?.valid === false}>
+          <Button onClick={handleApply} variant="contained" disabled={isValid === false}>
             {t("apply")}
           </Button>
         </Stack>

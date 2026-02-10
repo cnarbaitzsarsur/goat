@@ -235,7 +235,8 @@ class AggregatePointsToolRunner(BaseToolRunner[AggregatePointsToolParams]):
                 columns[field] = source_layer[field]
 
         # Add count column (always present)
-        columns["count"] = "BIGINT"
+        count_col = cls.unique_column_name(columns, "count")
+        columns[count_col] = "BIGINT"
 
         # Add statistics columns
         column_statistics = params.get("column_statistics") or []
@@ -246,8 +247,8 @@ class AggregatePointsToolRunner(BaseToolRunner[AggregatePointsToolParams]):
             if operation == "count":
                 continue  # count already added
             elif field:
-                # Use custom result_name if provided, otherwise generate default
-                col_name = result_name if result_name else f"{field}_{operation}"
+                base_name = result_name if result_name else f"{field}_{operation}"
+                col_name = cls.unique_column_name(columns, base_name)
                 columns[col_name] = "DOUBLE"
 
         # Add geometry

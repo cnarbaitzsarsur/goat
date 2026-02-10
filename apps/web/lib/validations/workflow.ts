@@ -25,6 +25,7 @@ export const datasetNodeDataSchema = z.object({
   layerId: z.string().uuid().optional(), // Layer UUID - main identifier
   layerName: z.string().optional(),
   geometryType: z.string().optional(), // "point", "line", "polygon", etc.
+  layerType: z.enum(["feature", "table", "raster"]).optional(), // Layer type (feature, table, raster)
   // Filter applied to the layer (workflow-specific, not persisted to layer)
   filter: z.record(z.unknown()).optional(), // CQL2-JSON filter
   filterInitialized: z.boolean().optional(), // True once filter has been initialized (prevents re-inheritance)
@@ -72,6 +73,28 @@ export const textAnnotationNodeDataSchema = z.object({
 export type TextAnnotationNodeData = z.infer<typeof textAnnotationNodeDataSchema>;
 
 // ============================================================================
+// Export Node
+// ============================================================================
+
+/**
+ * Data schema for an export node - saves workflow results as permanent datasets
+ */
+export const exportNodeDataSchema = z.object({
+  type: z.literal("export"),
+  label: z.string(),
+  datasetName: z.string().default(""), // Name for the exported dataset
+  addToProject: z.boolean().default(true), // Whether to add the exported layer to the current project
+  overwritePrevious: z.boolean().default(false), // Overwrite dataset from previous run
+  // Execution state
+  status: nodeStatusSchema.default("idle"),
+  exportedLayerId: z.string().uuid().optional(), // Resulting permanent layer ID after export
+  jobId: z.string().optional(), // Windmill job ID during finalization
+  error: z.string().optional(), // Error message if status is "error"
+});
+
+export type ExportNodeData = z.infer<typeof exportNodeDataSchema>;
+
+// ============================================================================
 // Workflow Node (ReactFlow compatible)
 // ============================================================================
 
@@ -80,7 +103,7 @@ export type TextAnnotationNodeData = z.infer<typeof textAnnotationNodeDataSchema
  */
 export const workflowNodeSchema = z.object({
   id: z.string(),
-  type: z.enum(["dataset", "tool", "textAnnotation"]),
+  type: z.enum(["dataset", "tool", "textAnnotation", "export"]),
   position: z.object({
     x: z.number(),
     y: z.number(),
@@ -89,6 +112,7 @@ export const workflowNodeSchema = z.object({
     datasetNodeDataSchema,
     toolNodeDataSchema,
     textAnnotationNodeDataSchema,
+    exportNodeDataSchema,
   ]),
   // Optional ReactFlow properties
   width: z.number().optional(),
@@ -286,3 +310,31 @@ export const isToolNode = (node: WorkflowNode): node is WorkflowNode & { data: T
 export const isTextAnnotationNode = (
   node: WorkflowNode
 ): node is WorkflowNode & { data: TextAnnotationNodeData } => node.data.type === "textAnnotation";
+
+/**
+ * Check if a node is an export node
+ */
+export const isExportNode = (node: WorkflowNode): node is WorkflowNode & { data: ExportNodeData } =>
+  node.data.type === "export";
+
+/**
+ * Create a new export node
+ */
+export const createExportNode = (
+  id: string,
+  position: { x: number; y: number },
+  label: string = "Export Dataset"
+): WorkflowNode => ({
+  id,
+  type: "export",
+  position,
+  zIndex: 1000,
+  data: {
+    type: "export",
+    label,
+    datasetName: "",
+    addToProject: true,
+    overwritePrevious: false,
+    status: "idle",
+  },
+});

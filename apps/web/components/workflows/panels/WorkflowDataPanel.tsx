@@ -283,29 +283,9 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
   // Get the layer UUID
   const effectiveLayerId = layer?.id || layerId || "";
 
-  // Determine if layer has geometry (assume temp layers have geometry)
+  // Determine if regular layer has geometry (temp layer geometry is detected later from actual data)
   const isTable = layer?.type === "table";
-  const hasGeometry = isTempLayer ? true : layer ? !isTable : false;
-
-  // Open map view when requested via Redux (e.g., from spatial filter creation)
-  useEffect(() => {
-    if (requestMapViewFlag && hasGeometry) {
-      setIsCollapsed(false);
-      setTabValue(1); // Map tab
-      dispatch(setActiveDataPanelView("map"));
-      dispatch(clearMapViewRequest());
-    }
-  }, [requestMapViewFlag, hasGeometry, dispatch]);
-
-  // Open table view when requested via Redux
-  useEffect(() => {
-    if (requestTableViewFlag && hasData) {
-      setIsCollapsed(false);
-      setTabValue(0); // Table tab
-      dispatch(setActiveDataPanelView("table"));
-      dispatch(clearTableViewRequest());
-    }
-  }, [requestTableViewFlag, hasData, dispatch]);
+  const regularHasGeometry = layer ? !isTable : false;
 
   // Get layer fields for regular layers (from layer metadata)
   const { layerFields: regularFields, isLoading: areRegularFieldsLoading } = useLayerFields(
@@ -415,6 +395,36 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
         type: typeof value === "number" ? "number" : typeof value === "object" ? "object" : "string",
       }));
   }, [isTempLayer, tempTableData]);
+
+  // Detect geometry from temp layer features (non-null geometry = has geometry)
+  const hasGeometry = useMemo(() => {
+    if (isTempLayer) {
+      if (!tempTableData?.features?.length) return false;
+      const firstFeature = tempTableData.features[0] as { geometry?: unknown };
+      return !!firstFeature?.geometry;
+    }
+    return regularHasGeometry;
+  }, [isTempLayer, tempTableData, regularHasGeometry]);
+
+  // Open map view when requested via Redux (e.g., from spatial filter creation)
+  useEffect(() => {
+    if (requestMapViewFlag && hasGeometry) {
+      setIsCollapsed(false);
+      setTabValue(1); // Map tab
+      dispatch(setActiveDataPanelView("map"));
+      dispatch(clearMapViewRequest());
+    }
+  }, [requestMapViewFlag, hasGeometry, dispatch]);
+
+  // Open table view when requested via Redux
+  useEffect(() => {
+    if (requestTableViewFlag && hasData) {
+      setIsCollapsed(false);
+      setTabValue(0); // Table tab
+      dispatch(setActiveDataPanelView("table"));
+      dispatch(clearTableViewRequest());
+    }
+  }, [requestTableViewFlag, hasData, dispatch]);
 
   // Use appropriate fields based on layer type
   const fields = isTempLayer ? tempFields : regularFields;

@@ -39,6 +39,8 @@ interface WorkflowExecutionState {
   nodeExecutionInfo: Record<string, NodeExecutionInfo>;
   /** Temp layer IDs by node ID (for displaying results) */
   tempLayerIds: Record<string, string>;
+  /** Exported (permanent) layer IDs by export node ID */
+  exportedLayerIds: Record<string, string>;
 }
 
 /**
@@ -95,6 +97,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     nodeStatuses: {},
     nodeExecutionInfo: {},
     tempLayerIds: {},
+    exportedLayerIds: {},
   });
 
   /**
@@ -125,7 +128,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     const initialStatuses: Record<string, NodeExecutionStatus> = {};
     const initialExecutionInfo: Record<string, NodeExecutionInfo> = {};
     nodes.forEach((node) => {
-      if (node.data?.type === "tool") {
+      if (node.data?.type === "tool" || node.data?.type === "export") {
         initialStatuses[node.id] = "pending";
         initialExecutionInfo[node.id] = { status: "pending" };
       }
@@ -138,6 +141,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       nodeStatuses: initialStatuses,
       nodeExecutionInfo: initialExecutionInfo,
       tempLayerIds: {},
+      exportedLayerIds: {},
     }));
 
     try {
@@ -330,6 +334,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       console.log("[useWorkflowExecution] Job completed, result:", job.result);
       const results = job.result?.node_results as Record<string, NodeResult> | undefined;
       const tempLayerIds: Record<string, string> = {};
+      const exportedLayerIds: Record<string, string> = {};
 
       console.log("[useWorkflowExecution] node_results:", results);
 
@@ -342,6 +347,10 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
           if (result.temp_layer_id) {
             tempLayerIds[nodeId] = result.temp_layer_id;
           }
+          // Export nodes return layer_id (permanent) instead of temp_layer_id
+          if (result.layer_id) {
+            exportedLayerIds[nodeId] = result.layer_id;
+          }
           // Extract timing info from each node result
           finalExecutionInfo[nodeId] = {
             status: "completed",
@@ -351,6 +360,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       }
 
       console.log("[useWorkflowExecution] Extracted tempLayerIds:", tempLayerIds);
+      console.log("[useWorkflowExecution] Extracted exportedLayerIds:", exportedLayerIds);
       console.log("[useWorkflowExecution] Extracted executionInfo:", finalExecutionInfo);
 
       setState((s) => ({
@@ -358,6 +368,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
         isExecuting: false,
         jobId: null, // Clear jobId to prevent re-triggering on subsequent job list updates
         tempLayerIds,
+        exportedLayerIds,
         nodeStatuses: Object.fromEntries(
           Object.entries(s.nodeStatuses).map(([id, _status]) => [id, "completed"])
         ),
@@ -420,6 +431,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
   }, [jobs, state.jobId, dispatch, t]);
 
   // Note: No manual polling interval needed here.
+  // Export nodes are finalized server-side by the workflow_runner.
   // The useJobs hook already has built-in SWR refreshInterval
   // that polls every 2 seconds when there are active jobs.
 
@@ -471,6 +483,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       nodeStatuses: {},
       nodeExecutionInfo: {},
       tempLayerIds: {},
+      exportedLayerIds: {},
     });
   }, []);
 
@@ -482,6 +495,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     nodeStatuses: state.nodeStatuses,
     nodeExecutionInfo: state.nodeExecutionInfo,
     tempLayerIds: state.tempLayerIds,
+    exportedLayerIds: state.exportedLayerIds,
 
     // Actions
     execute,

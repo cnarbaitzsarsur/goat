@@ -74,6 +74,9 @@ export default function MapPage({ params: { projectId } }) {
     mutate: mutateProjectLayers,
   } = useFilteredProjectLayers(projectId, ["table"], []);
 
+  // Fetch all layers including tables for workflow (tables can be data inputs)
+  const { layers: allProjectLayersIncludingTables } = useFilteredProjectLayers(projectId, [], []);
+
   const {
     layerGroups: projectLayerGroups,
     isLoading: areProjectLayerGroupsLoading,
@@ -463,7 +466,7 @@ export default function MapPage({ params: { projectId } }) {
                     {mapMode === "workflows" && (
                       <WorkflowsLayout
                         project={project}
-                        projectLayers={projectLayers}
+                        projectLayers={allProjectLayersIncludingTables}
                         projectLayerGroups={projectLayerGroups}
                         onProjectUpdate={handleProjectUpdate}
                       />

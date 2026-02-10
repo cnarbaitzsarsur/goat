@@ -393,14 +393,14 @@ class JoinToolRunner(BaseToolRunner[JoinToolParams]):
         for col, dtype in join_layer.items():
             if col == "geometry":
                 continue
-            # Prefix if column exists in target
-            out_col = f"join_{col}" if col in columns else col
+            out_col = cls.unique_column_name(columns, col)
             columns[out_col] = dtype
 
         # Add join_count for one-to-one joins
         join_operation = params.get("join_operation", "one_to_one")
         if join_operation == "one_to_one":
-            columns["join_count"] = "BIGINT"
+            col_name = cls.unique_column_name(columns, "join_count")
+            columns[col_name] = "BIGINT"
 
         # Add statistics columns if enabled
         calculate_statistics = params.get("calculate_statistics", False)
@@ -414,13 +414,14 @@ class JoinToolRunner(BaseToolRunner[JoinToolParams]):
                 result_name = stat.get("result_name")
                 # Use custom result_name if provided, otherwise generate default
                 if result_name:
-                    col_name = result_name
+                    base_name = result_name
                 elif operation == "count":
-                    col_name = "count"
+                    base_name = "count"
                 elif field:
-                    col_name = f"{field}_{operation}"
+                    base_name = f"{field}_{operation}"
                 else:
                     continue
+                col_name = cls.unique_column_name(columns, base_name)
                 columns[col_name] = "BIGINT" if operation == "count" else "DOUBLE"
 
         return columns

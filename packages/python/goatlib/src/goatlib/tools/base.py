@@ -622,6 +622,22 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
     default_output_name: str = "Tool Output"
     tool_type: str | None = None  # e.g., "catchment_area", "buffer", "join"
 
+    @staticmethod
+    def unique_column_name(
+        columns: dict[str, str],
+        name: str,
+    ) -> str:
+        """Return *name* if it doesn't exist in *columns*, otherwise append _1, _2, etc.
+
+        Matches DuckDB's auto-rename behaviour for duplicate column names.
+        """
+        if name not in columns:
+            return name
+        suffix = 1
+        while f"{name}_{suffix}" in columns:
+            suffix += 1
+        return f"{name}_{suffix}"
+
     @classmethod
     def predict_output_schema(
         cls,

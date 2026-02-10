@@ -1,3 +1,12 @@
 packages:
-  - "apps/*"
-  - "packages/js/*"
+  - apps/*
+  - packages/js/*
+
+ignoredBuiltDependencies:
+  - '@sentry/cli'
+  - '@swc/core'
+  - core-js
+  - core-js-pure
+  - es5-ext
+  - esbuild
+  - sharp

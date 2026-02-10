@@ -1,0 +1,202 @@
+"use client";
+
+import {
+  CheckCircle as CheckCircleIcon,
+  Delete as DeleteIcon,
+  ContentCopy as DuplicateIcon,
+  SaveAlt as SaveIcon,
+} from "@mui/icons-material";
+import { Box, Stack, Tooltip, Typography } from "@mui/material";
+import { styled } from "@mui/material/styles";
+import { type NodeProps, NodeToolbar, Position } from "@xyflow/react";
+import React, { memo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { useDispatch, useSelector } from "react-redux";
+import { v4 as uuidv4 } from "uuid";
+
+import type { AppDispatch } from "@/lib/store";
+import { selectNodes } from "@/lib/store/workflow/selectors";
+import { addNode, removeNodes } from "@/lib/store/workflow/slice";
+import type { ExportNodeData } from "@/lib/validations/workflow";
+
+import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext";
+import {
+  AnimatedBorderWrapper,
+  BorderAnglePropertyStyles,
+  IconStatusBadge,
+  NodeContainer,
+  NodeHeader,
+  NodeIconWrapper,
+  NodeParamsSection,
+  StyledHandle,
+  ToolbarButton,
+  ToolbarContainer,
+} from "./shared";
+
+const ParamRow = styled(Box)({
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 16,
+});
+
+interface ExportNodeProps extends NodeProps {
+  data: ExportNodeData;
+}
+
+const ExportNode: React.FC<ExportNodeProps> = ({ id, data, selected }) => {
+  const { t } = useTranslation("common");
+  const dispatch = useDispatch<AppDispatch>();
+  const nodes = useSelector(selectNodes);
+
+  const { nodeStatuses } = useWorkflowExecutionContext();
+  const nodeStatus = nodeStatuses[id] || data.status;
+
+  // Handle duplicate node
+  const handleDuplicate = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      const node = nodes.find((n) => n.id === id);
+      if (!node) return;
+
+      dispatch(
+        addNode({
+          ...node,
+          id: `export-${uuidv4()}`,
+          position: {
+            x: node.position.x + 50,
+            y: node.position.y + 50,
+          },
+          data: {
+            ...node.data,
+            status: "idle",
+            exportedLayerId: undefined,
+            jobId: undefined,
+            error: undefined,
+          },
+        })
+      );
+    },
+    [id, nodes, dispatch]
+  );
+
+  // Handle delete node
+  const handleDelete = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      dispatch(removeNodes([id]));
+    },
+    [id, dispatch]
+  );
+
+  return (
+    <>
+      {/* Global styles for animation */}
+      <BorderAnglePropertyStyles />
+
+      <NodeToolbar position={Position.Top} align="end">
+        <ToolbarContainer>
+          <Tooltip title={t("duplicate")} placement="top" arrow>
+            <ToolbarButton onClick={handleDuplicate}>
+              <DuplicateIcon fontSize="small" />
+            </ToolbarButton>
+          </Tooltip>
+          <Tooltip title={t("delete")} placement="top" arrow>
+            <ToolbarButton onClick={handleDelete}>
+              <DeleteIcon fontSize="small" color="error" />
+            </ToolbarButton>
+          </Tooltip>
+        </ToolbarContainer>
+      </NodeToolbar>
+
+      <NodeContainer selected={selected}>
+        {/* Input handle - left (receives tool output) */}
+        <StyledHandle type="target" position={Position.Left} id="input" selected={selected} />
+
+        <NodeHeader>
+          <AnimatedBorderWrapper isRunning={nodeStatus === "running"}>
+            <NodeIconWrapper status={nodeStatus}>
+              <SaveIcon
+                sx={{
+                  fontSize: 20,
+                  color:
+                    nodeStatus === "completed"
+                      ? "primary.main"
+                      : nodeStatus === "failed"
+                        ? "error.main"
+                        : nodeStatus === "running"
+                          ? "warning.main"
+                          : "inherit",
+                }}
+              />
+              {/* Checkmark badge — only on completed, same as tool nodes */}
+              {nodeStatus === "completed" && (
+                <IconStatusBadge>
+                  <CheckCircleIcon sx={{ fontSize: 12 }} />
+                </IconStatusBadge>
+              )}
+            </NodeIconWrapper>
+          </AnimatedBorderWrapper>
+          <Typography variant="caption" fontWeight={700} sx={{ flex: 1, wordBreak: "break-word" }}>
+            {t("export_dataset")}
+          </Typography>
+        </NodeHeader>
+
+        {/* Parameters section — same layout as ToolNode's ParamRow */}
+        <NodeParamsSection>
+          <Stack spacing={0.25}>
+          {data.datasetName && (
+            <ParamRow>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ fontSize: 11 }}>
+                {t("dataset_name")}:
+              </Typography>
+              <Typography variant="caption" fontWeight="medium" sx={{ fontSize: 11 }}>
+                {data.datasetName}
+              </Typography>
+            </ParamRow>
+          )}
+          {data.addToProject && (
+            <ParamRow>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ fontSize: 11 }}>
+                {t("add_to_project")}:
+              </Typography>
+              <Typography variant="caption" fontWeight="medium" sx={{ fontSize: 11 }}>
+                {t("yes")}
+              </Typography>
+            </ParamRow>
+          )}
+          {data.overwritePrevious && (
+            <ParamRow>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ fontSize: 11 }}>
+                {t("overwrite")}:
+              </Typography>
+              <Typography variant="caption" fontWeight="medium" sx={{ fontSize: 11 }}>
+                {t("yes")}
+              </Typography>
+            </ParamRow>
+          )}
+          </Stack>
+        </NodeParamsSection>
+
+        {/* Error */}
+        {nodeStatus === "failed" && data.error && (
+          <Typography
+            variant="caption"
+            color="error.main"
+            sx={{
+              display: "block",
+              mt: 0.5,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={data.error}>
+            {data.error}
+          </Typography>
+        )}
+      </NodeContainer>
+    </>
+  );
+};
+
+export default memo(ExportNode);
