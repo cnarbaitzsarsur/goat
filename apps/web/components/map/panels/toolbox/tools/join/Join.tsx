@@ -1,4 +1,4 @@
-import { Box, Typography, useTheme } from "@mui/material";
+import { Box, TextField, Typography, useTheme } from "@mui/material";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -91,6 +91,8 @@ const Join = ({ onBack, onClose }: IndicatorBaseProps) => {
     statisticField,
     setStatisticField,
   } = useStatisticValues();
+
+  const [resultName, setResultName] = useState<string>("");
 
   useEffect(() => {
     if (joinLayerItem) {
@@ -186,6 +188,7 @@ const Join = ({ onBack, onClose }: IndicatorBaseProps) => {
       column_statistics: {
         operation: statisticMethodSelected?.value,
         field: statisticField?.name,
+        ...(resultName.trim() && { result_name: resultName.trim() }),
       },
     };
     try {
@@ -212,6 +215,7 @@ const Join = ({ onBack, onClose }: IndicatorBaseProps) => {
     setJoinSelectedField(undefined);
     setStatisticMethodSelected(undefined);
     setStatisticField(undefined);
+    setResultName("");
   };
 
   return (
@@ -365,6 +369,17 @@ const Join = ({ onBack, onClose }: IndicatorBaseProps) => {
                     }}
                     label={t("select_field_to_calculate_statistics")}
                     tooltip={t("select_field_to_calculate_statistics_tooltip")}
+                  />
+
+                  <TextField
+                    size="small"
+                    fullWidth
+                    label={t("result_column_name")}
+                    value={resultName}
+                    onChange={(e) => setResultName(e.target.value)}
+                    placeholder={t("result_column_name_placeholder")}
+                    helperText={t("result_column_name_helper")}
+                    disabled={!statisticMethodSelected}
                   />
                 </>
               }

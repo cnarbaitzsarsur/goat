@@ -1,12 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { debounce } from "@mui/material";
-import { useCallback, useMemo, useState } from "react";
-
-import { useTranslation } from 'react-i18next'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useLayerUniqueValues } from "@/lib/api/layers";
 import type { GetLayerUniqueValuesQueryParams } from "@/lib/validations/layer";
-
 
 export const useGetMetadataValueTranslation = () => {
   const { t, i18n } = useTranslation(["common", "countries"]);
@@ -52,8 +50,23 @@ export const useDatasetValueSelectorMethods = ({
     size: 100,
     page: 1,
     order: "descendent",
-    ...(cqlFilter ? { query: JSON.stringify(cqlFilter) } : {})
+    ...(cqlFilter ? { query: JSON.stringify(cqlFilter) } : {}),
   });
+
+  // Update queryParams when cqlFilter changes
+  useEffect(() => {
+    if (cqlFilter) {
+      setQueryParams((params) => ({
+        ...params,
+        query: JSON.stringify(cqlFilter),
+      }));
+    } else {
+      setQueryParams((params) => {
+        const { query: _, ...rest } = params;
+        return rest;
+      });
+    }
+  }, [JSON.stringify(cqlFilter)]);
 
   const _selectedValues = useMemo(() => selectedValues || [], [selectedValues]);
 

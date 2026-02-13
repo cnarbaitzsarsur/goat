@@ -13,7 +13,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.buffer import BufferToolParams, BufferToolRunner
 

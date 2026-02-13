@@ -7,15 +7,15 @@ Tests the layer import functionality including:
 - Output name handling
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+from goatlib.models.io import DatasetMetadata
 from goatlib.tools.layer_import import (
     LayerImportParams,
     LayerImportRunner,
 )
-from goatlib.models.io import DatasetMetadata
 
 
 class TestLayerImportParams:
@@ -128,9 +128,9 @@ class TestLayerImportRunner:
             folder_id="00000000-0000-0000-0000-000000000002",
             s3_key="uploads/test.gpkg",
         )
-        
+
         result = runner.get_feature_layer_type(params)
-        
+
         assert result == "standard"
 
     def test_default_output_name(self, runner):
@@ -306,7 +306,9 @@ class TestLayerImportProcess:
             # No s3_key or wfs_url
         )
 
-        with pytest.raises(ValueError, match="Either s3_key or wfs_url must be provided"):
+        with pytest.raises(
+            ValueError, match="Either s3_key or wfs_url must be provided"
+        ):
             runner.process(params, tmp_path)
 
     def test_process_uses_s3_for_s3_key(self, runner, tmp_path):
@@ -419,11 +421,11 @@ class TestLayerImportOutputName:
             folder_id="00000000-0000-0000-0000-000000000002",
             s3_key="uploads/my-layer-data.gpkg",
         )
-        
+
         # Mock the parent run method
         with patch.object(LayerImportRunner.__bases__[0], "run", return_value={}):
             runner.run(params)
-        
+
         assert params.output_name == "my-layer-data"
 
     def test_output_name_from_name_field(self, runner):
@@ -434,10 +436,10 @@ class TestLayerImportOutputName:
             s3_key="uploads/test.gpkg",
             name="My Custom Name",
         )
-        
+
         with patch.object(LayerImportRunner.__bases__[0], "run", return_value={}):
             runner.run(params)
-        
+
         assert params.output_name == "My Custom Name"
 
     def test_output_name_from_wfs_layer_name(self, runner):
@@ -448,10 +450,10 @@ class TestLayerImportOutputName:
             wfs_url="https://wfs.example.com/wfs",
             wfs_layer_name="buildings",
         )
-        
+
         with patch.object(LayerImportRunner.__bases__[0], "run", return_value={}):
             runner.run(params)
-        
+
         assert params.output_name == "buildings"
 
     def test_output_name_wfs_fallback(self, runner):
@@ -461,10 +463,10 @@ class TestLayerImportOutputName:
             folder_id="00000000-0000-0000-0000-000000000002",
             wfs_url="https://wfs.example.com/wfs",
         )
-        
+
         with patch.object(LayerImportRunner.__bases__[0], "run", return_value={}):
             runner.run(params)
-        
+
         assert params.output_name == "WFS Import"
 
     def test_explicit_output_name_not_overridden(self, runner):
@@ -475,9 +477,9 @@ class TestLayerImportOutputName:
             s3_key="uploads/test.gpkg",
             output_name="Explicit Name",
         )
-        
+
         with patch.object(LayerImportRunner.__bases__[0], "run", return_value={}):
             runner.run(params)
-        
+
         # Should keep explicit name
         assert params.output_name == "Explicit Name"

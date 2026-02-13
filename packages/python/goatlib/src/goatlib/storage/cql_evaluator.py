@@ -32,12 +32,14 @@ from pygeofilter.backends.evaluator import Evaluator, handle
 class DuckDBCQLEvaluator(Evaluator):
     """Convert CQL2 AST to DuckDB SQL WHERE clause."""
 
-    def __init__(self, field_names: list[str], geometry_column: str = "geom") -> None:
+    def __init__(
+        self, field_names: list[str], geometry_column: str = "geometry"
+    ) -> None:
         """Initialize evaluator.
 
         Args:
             field_names: List of valid column names in the table
-            geometry_column: Name of the geometry column (default: "geom")
+            geometry_column: Name of the geometry column (default: "geometry")
         """
         self.field_names = [f.lower() for f in field_names]
         self.geometry_column = geometry_column
@@ -93,10 +95,10 @@ class DuckDBCQLEvaluator(Evaluator):
 
     @handle(ast.Like)
     def like(self, node, lhs):
-        """Handle LIKE/ILIKE operator."""
+        """Handle LIKE operator (always case-insensitive with ILIKE)."""
         pattern = self._add_param(node.pattern)
-        op = "ILIKE" if node.nocase else "LIKE"
-        result = f"{lhs} {op} {pattern}"
+        # Always use ILIKE for case-insensitive matching (better UX)
+        result = f"{lhs} ILIKE {pattern}"
         return f"NOT ({result})" if node.not_ else result
 
     @handle(ast.In)
@@ -303,7 +305,7 @@ class DuckDBCQLEvaluator(Evaluator):
 def cql2_to_duckdb_sql(
     cql_ast: Any,
     field_names: list[str],
-    geometry_column: str = "geom",
+    geometry_column: str = "geometry",
 ) -> tuple[str, list[Any]]:
     """Convert CQL2 AST to DuckDB SQL WHERE clause with parameters.
 

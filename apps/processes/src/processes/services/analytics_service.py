@@ -358,8 +358,9 @@ class AnalyticsService:
 
         Args:
             collection: Layer ID
-            operation: Statistical operation (count, sum, mean, min, max)
-            operation_column: Column to perform the operation on
+            operation: Statistical operation (count, sum, mean, min, max, expression)
+            operation_column: Column to perform the operation on. For 'expression', this
+                contains the raw SQL expression.
             group_by_column: Optional column to group results by
             filter_expr: Optional CQL2 filter
             order: Sort order (ascendent or descendent)
@@ -375,6 +376,22 @@ class AnalyticsService:
         stats_op = StatisticsOperation.count
         if operation in StatisticsOperation.__members__:
             stats_op = StatisticsOperation(operation)
+
+        # Validate expression if operation is expression
+        if stats_op == StatisticsOperation.expression:
+            if not operation_column:
+                raise ValueError(
+                    "operation_column (expression) is required for operation 'expression'"
+                )
+            # Import validator to validate the expression
+            from goatlib.utils.expressions import ExpressionValidator
+
+            column_names = self._get_column_names(table_name)
+            validator = ExpressionValidator(column_names=column_names)
+            validation = validator.validate(operation_column)
+            if not validation.valid:
+                error_messages = [e.message for e in validation.errors]
+                raise ValueError(f"Invalid expression: {'; '.join(error_messages)}")
 
         sort_order = SortOrder.descendent
         if order == "ascendent":

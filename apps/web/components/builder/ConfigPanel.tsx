@@ -60,9 +60,9 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ project, onProjectUpdate }) =
     if (!builderConfig) {
       return;
     }
-    builderConfig["interface"] = builderInterface;
+    const updatedBuilderConfig = { ...builderConfig, interface: builderInterface };
     try {
-      await onProjectUpdate?.("builder_config", builderConfig);
+      await onProjectUpdate?.("builder_config", updatedBuilderConfig);
     } catch {
       dispatch(setSelectedBuilderItem(undefined));
     }
@@ -119,8 +119,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ project, onProjectUpdate }) =
       return panel;
     });
     if (updatedPanels) {
-      builderConfig["interface"] = updatedPanels;
-      onProjectUpdate?.("builder_config", builderConfig, false);
+      const updatedBuilderConfig = { ...builderConfig, interface: updatedPanels };
+      onProjectUpdate?.("builder_config", updatedBuilderConfig, false);
     }
   };
 

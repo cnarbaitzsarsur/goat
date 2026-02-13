@@ -8,10 +8,9 @@ Tests the layer deletion functionality including:
 - PMTiles deletion
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from goatlib.tools.layer_delete import (
     LayerDeleteOutput,
     LayerDeleteParams,
@@ -332,7 +331,7 @@ class TestLayerDeleteRun:
             runner,
             "_verify_ownership_and_delete",
             new_callable=AsyncMock,
-            return_value=(True, "00000000-0000-0000-0000-000000000001")
+            return_value=(True, "00000000-0000-0000-0000-000000000001"),
         ):
             params = LayerDeleteParams(
                 user_id="00000000-0000-0000-0000-000000000001",
@@ -353,7 +352,7 @@ class TestLayerDeleteRun:
             runner,
             "_verify_ownership_and_delete",
             new_callable=AsyncMock,
-            side_effect=PermissionError("User cannot delete this layer")
+            side_effect=PermissionError("User cannot delete this layer"),
         ):
             params = LayerDeleteParams(
                 user_id="00000000-0000-0000-0000-000000000001",

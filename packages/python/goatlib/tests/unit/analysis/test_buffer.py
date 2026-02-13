@@ -4,10 +4,8 @@ from pathlib import Path
 
 import duckdb
 import pytest
-
 from goatlib.analysis.geoprocessing.buffer import BufferTool
 from goatlib.analysis.schemas.geoprocessing import BufferParams, DistanceType
-
 
 # Test data and result directories
 TEST_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "vector"

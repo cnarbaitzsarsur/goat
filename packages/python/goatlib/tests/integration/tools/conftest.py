@@ -41,7 +41,6 @@ NOTE ON DB MODELS:
     reduce maintenance burden.
 """
 
-import asyncio
 import logging
 import os
 import uuid
@@ -52,7 +51,6 @@ import asyncpg
 import duckdb
 import pytest
 import pytest_asyncio
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.db import ToolDatabaseService
 

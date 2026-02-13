@@ -1,4 +1,4 @@
-import { Box, Divider, Stack, Switch, Typography, useTheme } from "@mui/material";
+import { Box, Divider, Stack, Switch, TextField, Typography, useTheme } from "@mui/material";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -134,6 +134,8 @@ const Aggregate = ({ onBack, onClose, type }: AggregateProps) => {
     setStatisticField,
   } = useStatisticValues();
 
+  const [resultName, setResultName] = useState<string>("");
+
   const { layerFields: statisticLayerFields } = useLayerFields(
     sourceLayerDatasetId || "",
     statisticMethodSelected?.value === "count" ? undefined : "number"
@@ -203,6 +205,7 @@ const Aggregate = ({ onBack, onClose, type }: AggregateProps) => {
           statisticField && {
             field: statisticField?.name,
           }),
+        ...(resultName.trim() && { result_name: resultName.trim() }),
       },
     };
     if (fieldGroup && fieldGroup?.length > 0) {
@@ -244,6 +247,7 @@ const Aggregate = ({ onBack, onClose, type }: AggregateProps) => {
     setFieldGroup([]);
     setSelectedScenario(undefined);
     setStatisticField(undefined);
+    setResultName("");
   };
 
   return (
@@ -430,6 +434,16 @@ const Aggregate = ({ onBack, onClose, type }: AggregateProps) => {
                         tooltip={t("select_field_to_calculate_statistics_tooltip")}
                       />
                     )}
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label={t("result_column_name")}
+                      value={resultName}
+                      onChange={(e) => setResultName(e.target.value)}
+                      placeholder={t("result_column_name_placeholder")}
+                      helperText={t("result_column_name_helper")}
+                      disabled={!statisticMethodSelected}
+                    />
                   </>
                 }
                 collapsed={statisticAdvancedOptions}

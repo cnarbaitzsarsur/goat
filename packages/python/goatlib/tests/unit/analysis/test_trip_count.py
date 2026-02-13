@@ -4,12 +4,11 @@ from pathlib import Path
 
 import duckdb
 import pytest
-
 from goatlib.analysis.accessibility import (
-    TripCountStationTool,
-    TripCountStationParams,
-    PTTimeWindow,
     TRANSPORT_MODE_MAPPING,
+    PTTimeWindow,
+    TripCountStationParams,
+    TripCountStationTool,
 )
 from goatlib.analysis.schemas.base import PTTimeWindow as BasePTTimeWindow
 

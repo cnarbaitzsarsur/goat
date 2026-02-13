@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Self
 
 from goatlib.analysis.core.base import AnalysisTool
-from goatlib.io.parquet import write_optimized_parquet
 from goatlib.analysis.schemas.base import PTTimeWindow
+from goatlib.io.parquet import write_optimized_parquet
 
 logger = logging.getLogger(__name__)
 

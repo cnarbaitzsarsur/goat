@@ -95,7 +95,7 @@ def write_optimized_parquet(
         ...     con,
         ...     "my_table",
         ...     "/tmp/output.parquet",
-        ...     geometry_column="geom"
+        ...     geometry_column="geometry"
         ... )
     """
     output_path = Path(output_path)

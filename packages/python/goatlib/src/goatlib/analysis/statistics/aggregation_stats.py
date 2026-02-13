@@ -31,8 +31,9 @@ def calculate_aggregation_stats(
     Args:
         con: DuckDB connection
         table_name: Fully qualified table name (e.g., "lake.my_table")
-        operation: Statistical operation (count, sum, mean, min, max)
-        operation_column: Column to perform the operation on (required for sum, mean, min, max)
+        operation: Statistical operation (count, sum, mean, min, max, expression)
+        operation_column: Column to perform the operation on (required for sum, mean, min, max).
+            For expression operation, this contains the raw SQL expression.
         group_by_column: Optional column to group results by
         where_clause: SQL WHERE clause condition (default: "TRUE" for all rows)
         params: Optional query parameters for prepared statement
@@ -43,7 +44,7 @@ def calculate_aggregation_stats(
         AggregationStatsResult with items, total_items, and total_count
     """
     # Validate inputs
-    if operation != StatisticsOperation.count and not operation_column:
+    if operation not in (StatisticsOperation.count,) and not operation_column:
         raise ValueError(
             f"operation_column is required for operation '{operation.value}'"
         )
@@ -62,6 +63,10 @@ def calculate_aggregation_stats(
         agg_expr = f'MIN("{operation_column}")'
     elif operation == StatisticsOperation.max:
         agg_expr = f'MAX("{operation_column}")'
+    elif operation == StatisticsOperation.expression:
+        # For expression operation, operation_column contains the raw SQL expression
+        # Note: The expression should be validated before calling this function
+        agg_expr = operation_column
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 

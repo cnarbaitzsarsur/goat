@@ -4,16 +4,12 @@ This test demonstrates how filters and scenarios work with the tool infrastructu
 It uses mocked database services to test the logic without actual DB connections.
 """
 
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
+from goatlib.tools.buffer import BufferToolParams
 from goatlib.tools.schemas import (
-    ToolInputBase,
     LayerInputMixin,
+    ToolInputBase,
     TwoLayerInputMixin,
 )
-from goatlib.tools.buffer import BufferToolParams
 
 
 class TestToolInputSchemas:

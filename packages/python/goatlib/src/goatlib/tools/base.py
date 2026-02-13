@@ -802,12 +802,17 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         temp_path = temp_file.name
         temp_file.close()
 
-        # Get column names for CQL filter validation
-        columns_result = self._execute_with_retry(
-            "get columns",
-            f"SELECT column_name FROM information_schema.columns WHERE table_catalog = 'lake' AND table_name = 't_{layer_id.replace('-', '')}'",
+        # Detect geometry column name and get column names from table schema
+        cols_result = self._execute_with_retry(
+            "describe table",
+            f"DESCRIBE {table_name}",
         )
-        column_names = [row[0] for row in columns_result.fetchall()]
+        geom_col = "geometry"  # default
+        column_names: list[str] = []
+        for col_name, col_type, *_ in cols_result.fetchall():
+            column_names.append(col_name)
+            if "GEOMETRY" in col_type.upper():
+                geom_col = col_name
 
         # Build WHERE clause
         where_clause = ""
@@ -815,7 +820,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
 
         if cql_filter:
             filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
-            cql_filters = build_cql_filter(filter_dict, column_names, "geometry")
+            cql_filters = build_cql_filter(filter_dict, column_names, geom_col)
             if cql_filters.clauses:
                 where_clause = "WHERE " + " AND ".join(cql_filters.clauses)
                 params = cql_filters.params
@@ -928,7 +933,6 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             f"DESCRIBE {table_name}",
         ).fetchall()
         columns = [(row[0], row[1]) for row in col_info]
-        col_names = [c[0] for c in columns]
 
         if not new_modified_features:
             # No new/modified features - just filter out deleted

@@ -14,6 +14,7 @@ import {
   WidgetInfo,
   WidgetOptions,
   WidgetSetup,
+  WidgetStyle,
 } from "@/components/builder/widgets/common/WidgetCommonConfigs";
 import TabsWidgetConfig from "@/components/builder/widgets/elements/TabsWidgetConfig";
 
@@ -79,6 +80,7 @@ const WidgetConfiguration = ({ onChange, samePanelWidgets }: WidgetConfiguration
       <WidgetInfo config={selectedBuilderItem.config} onChange={handleConfigChange} />
       {hasDataConfig && <WidgetData config={selectedBuilderItem.config} onChange={handleConfigChange} />}
       <WidgetSetup config={selectedBuilderItem.config} onChange={handleConfigChange} />
+      <WidgetStyle config={selectedBuilderItem.config} onChange={handleConfigChange} />
       <WidgetOptions config={selectedBuilderItem.config} onChange={handleConfigChange} />
     </Stack>
   );

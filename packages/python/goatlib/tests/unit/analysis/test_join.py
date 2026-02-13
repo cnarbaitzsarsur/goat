@@ -4,7 +4,6 @@ from pathlib import Path
 
 import duckdb
 import pytest
-
 from goatlib.analysis.data_management.join import JoinTool
 from goatlib.analysis.schemas.base import FieldStatistic, StatisticOperation
 from goatlib.analysis.schemas.data_management import (
@@ -17,7 +16,6 @@ from goatlib.analysis.schemas.data_management import (
     SortOrder,
     SpatialRelationshipType,
 )
-
 
 # Test data directory
 TEST_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "vector"
@@ -262,6 +260,65 @@ class TestAttributeJoin:
         # Should have statistics columns
         assert any("sum" in col.lower() for col in df.columns)
         assert any("max" in col.lower() for col in df.columns)
+
+        con.close()
+        tool.cleanup()
+
+    def test_attribute_join_with_custom_result_name(self) -> None:
+        """Test attribute join with custom result column names."""
+        target_path = str(TEST_DATA_DIR / "employees.parquet")
+        join_path = str(TEST_DATA_DIR / "salary_bands.parquet")
+        output_path = str(RESULT_DIR / "join_attr_custom_names.parquet")
+
+        params = JoinParams(
+            target_path=target_path,
+            join_path=join_path,
+            output_path=output_path,
+            use_spatial_relationship=False,
+            use_attribute_relationship=True,
+            attribute_relationships=[
+                AttributeRelationship(
+                    target_field="department", join_field="department"
+                ),
+            ],
+            join_operation=JoinOperationType.one_to_one,
+            multiple_matching_records=MultipleMatchingRecordsType.calculate_statistics,
+            join_type=JoinType.left,
+            field_statistics=[
+                FieldStatistic(
+                    field="min_salary",
+                    operation=StatisticOperation.sum,
+                    result_name="total_min_salary",
+                ),
+                FieldStatistic(
+                    field="max_salary",
+                    operation=StatisticOperation.max,
+                    result_name="highest_max_salary",
+                ),
+            ],
+        )
+
+        tool = JoinTool()
+        results = tool.run(params)
+
+        assert len(results) == 1
+        result_path, metadata = results[0]
+
+        con = duckdb.connect()
+        con.execute("INSTALL spatial; LOAD spatial;")
+
+        df = con.execute(f"SELECT * FROM read_parquet('{result_path}')").fetchdf()
+
+        # Should still have 6 rows (one per employee)
+        assert len(df) == 6
+
+        # Should have custom column names
+        assert "total_min_salary" in df.columns
+        assert "highest_max_salary" in df.columns
+
+        # Should NOT have default column names
+        assert "min_salary_sum" not in df.columns
+        assert "max_salary_max" not in df.columns
 
         con.close()
         tool.cleanup()

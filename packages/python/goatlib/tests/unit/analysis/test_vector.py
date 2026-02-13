@@ -11,9 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from goatlib.analysis.data_management.join import JoinTool
+from goatlib.analysis.schemas.base import FieldStatistic, StatisticOperation
 from goatlib.analysis.schemas.data_management import (
     AttributeRelationship,
-    FieldStatistic,
     JoinOperationType,
     JoinParams,
     JoinType,
@@ -21,7 +21,6 @@ from goatlib.analysis.schemas.data_management import (
     SortConfiguration,
     SortOrder,
     SpatialRelationshipType,
-    StatisticOperation,
 )
 
 

@@ -11,9 +11,11 @@ from typing import Any, Self
 from pydantic import Field
 
 from goatlib.analysis.accessibility import (
-    TripCountStationTool,
-    TripCountStationParams as AnalysisTripCountParams,
     PTTimeWindow,
+    TripCountStationTool,
+)
+from goatlib.analysis.accessibility import (
+    TripCountStationParams as AnalysisTripCountParams,
 )
 from goatlib.analysis.schemas.catchment_area import Weekday
 from goatlib.analysis.schemas.ui import (
@@ -24,9 +26,9 @@ from goatlib.analysis.schemas.ui import (
 from goatlib.models.io import DatasetMetadata
 from goatlib.tools.base import BaseToolRunner
 from goatlib.tools.schemas import (
-    get_default_layer_name,
     ScenarioSelectorMixin,
     ToolInputBase,
+    get_default_layer_name,
 )
 from goatlib.tools.style import get_trip_count_style
 

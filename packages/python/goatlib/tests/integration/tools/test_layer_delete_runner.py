@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from goatlib.tools.base import ToolSettings
 from goatlib.tools.layer_delete import LayerDeleteParams, LayerDeleteRunner
 
@@ -25,6 +24,7 @@ pytestmark = pytest.mark.integration
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def delete_runner(tool_settings: ToolSettings) -> LayerDeleteRunner:
@@ -37,6 +37,7 @@ def delete_runner(tool_settings: ToolSettings) -> LayerDeleteRunner:
 # ============================================================================
 # DuckLake Deletion Tests
 # ============================================================================
+
 
 class TestLayerDeleteDuckLake:
     """Test DuckLake table deletion."""
@@ -132,6 +133,7 @@ class TestLayerDeleteDuckLake:
 # PostgreSQL Metadata Deletion Tests
 # ============================================================================
 
+
 class TestLayerDeleteMetadata:
     """Test PostgreSQL metadata deletion."""
 
@@ -188,6 +190,7 @@ class TestLayerDeleteMetadata:
 # ============================================================================
 # Ownership Enforcement Tests
 # ============================================================================
+
 
 class TestLayerDeleteOwnership:
     """Test ownership enforcement during deletion."""
@@ -263,6 +266,7 @@ class TestLayerDeleteOwnership:
 # ============================================================================
 # Non-Existent Layer Tests
 # ============================================================================
+
 
 class TestLayerDeleteNonExistent:
     """Test deletion of non-existent layers."""

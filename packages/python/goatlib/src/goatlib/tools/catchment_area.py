@@ -421,6 +421,8 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
 
     # Store starting points output path for secondary layer creation
     _starting_points_parquet: Path | None = None
+    # Track if starting points came from an existing layer (skip creating duplicate)
+    _starting_points_from_layer: bool = False
 
     def get_layer_properties(
         self: Self,
@@ -516,20 +518,25 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
 
         table_name = self.get_layer_table_path(layer_owner_id, layer_id)
 
+        # Detect geometry column name from table schema
+        cols_result = self._execute_with_retry(
+            "describe table",
+            f"DESCRIBE {table_name}",
+        )
+        geom_col = "geometry"  # default
+        column_names: list[str] = []
+        for col_name, col_type, *_ in cols_result.fetchall():
+            column_names.append(col_name)
+            if "GEOMETRY" in col_type.upper():
+                geom_col = col_name
+
         # Build WHERE clause from CQL filter
-        where_clause = "WHERE geometry IS NOT NULL"
+        where_clause = f"WHERE {geom_col} IS NOT NULL"
         params: list[Any] = []
 
         if cql_filter:
-            # Get column names for CQL filter validation
-            columns_result = self._execute_with_retry(
-                "get columns",
-                f"SELECT column_name FROM information_schema.columns WHERE table_catalog = 'lake' AND table_name = 't_{layer_id.replace('-', '')}'",
-            )
-            column_names = [row[0] for row in columns_result.fetchall()]
-
             filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
-            cql_filters = build_cql_filter(filter_dict, column_names, "geometry")
+            cql_filters = build_cql_filter(filter_dict, column_names, geom_col)
             if cql_filters.clauses:
                 where_clause += " AND " + " AND ".join(cql_filters.clauses)
                 params = cql_filters.params
@@ -538,8 +545,8 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         # Query centroids of all geometries
         query = f"""
             SELECT
-                ST_Y(ST_Centroid(geometry)) as lat,
-                ST_X(ST_Centroid(geometry)) as lon
+                ST_Y(ST_Centroid({geom_col})) as lat,
+                ST_X(ST_Centroid({geom_col})) as lon
             FROM {table_name}
             {where_clause}
         """
@@ -574,10 +581,12 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
             Tuple of (latitudes, longitudes) lists
         """
         if isinstance(starting_points, StartingPointsMap):
-            # Direct coordinates from map clicks
+            # Direct coordinates from map clicks - need to create starting points layer
+            self._starting_points_from_layer = False
             return starting_points.latitude, starting_points.longitude
         elif isinstance(starting_points, StartingPointsLayer):
-            # Extract from layer with optional filter
+            # Extract from existing layer - don't create duplicate starting points layer
+            self._starting_points_from_layer = True
             return self._extract_coordinates_from_layer(
                 starting_points.layer_id,
                 user_id,
@@ -734,17 +743,23 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
             results = tool.run(analysis_params)
             result_path, metadata = results[0]
 
-            # Create starting points parquet file
-            starting_points_path = temp_dir / "starting_points.parquet"
-            self._create_starting_points_parquet(
-                latitudes=latitudes,
-                longitudes=longitudes,
-                output_path=starting_points_path,
-            )
-            if starting_points_path.exists():
-                self._starting_points_parquet = starting_points_path
+            # Create starting points parquet file only if starting points
+            # came from map clicks (not from an existing layer)
+            if not self._starting_points_from_layer:
+                starting_points_path = temp_dir / "starting_points.parquet"
+                self._create_starting_points_parquet(
+                    latitudes=latitudes,
+                    longitudes=longitudes,
+                    output_path=starting_points_path,
+                )
+                if starting_points_path.exists():
+                    self._starting_points_parquet = starting_points_path
+                    logger.info(
+                        "Starting points output available at: %s", starting_points_path
+                    )
+            else:
                 logger.info(
-                    "Starting points output available at: %s", starting_points_path
+                    "Skipping starting points layer creation - using existing layer"
                 )
 
             return Path(result_path), metadata
