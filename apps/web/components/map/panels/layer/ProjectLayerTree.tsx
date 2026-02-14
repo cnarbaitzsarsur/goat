@@ -26,6 +26,7 @@ import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 // 3. MAIN COMPONENT
 // ----------------------------------------------------------------------
 // Redux
+import { useProject, useProjectScenarioFeatures } from "@/lib/api/projects";
 import { setSelectedLayers } from "@/lib/store/layer/slice";
 import { setActiveRightPanel } from "@/lib/store/map/slice";
 import { rgbToHex } from "@/lib/utils/helpers";
@@ -357,6 +358,18 @@ export const ProjectLayerTree = ({
 
   const isEditMode = viewMode === "edit";
 
+  // Scenario features for active scenario
+  const { project } = useProject(projectId);
+  const { scenarioFeatures } = useProjectScenarioFeatures(projectId, project?.active_scenario_id);
+  const scenarioCountByLayer = useMemo(() => {
+    const counts: Record<number, number> = {};
+    scenarioFeatures?.features?.forEach((f) => {
+      const lpId = f.properties?.layer_project_id;
+      if (lpId) counts[lpId] = (counts[lpId] || 0) + 1;
+    });
+    return counts;
+  }, [scenarioFeatures]);
+
   // Combine layers and groups into tree nodes
   const treeData = useMemo(() => {
     const nodes: ProjectLayerTreeNode[] = [];
@@ -597,6 +610,26 @@ export const ProjectLayerTree = ({
                 sx={{ "& .MuiBadge-badge": { fontSize: 9, height: 15, minWidth: 15 } }}>
                 <Icon htmlColor="inherit" iconName={ICON_NAME.FILTER} style={{ fontSize: "15px" }} />
               </Badge>
+            </IconButton>
+          </Tooltip>
+        )}
+
+        {/* Scenario Indicator - Show when layer has scenario features */}
+        {isEditMode && node.type === "layer" && scenarioCountByLayer[node.id] && (
+          <Tooltip title={t("scenario")} placement="top">
+            <IconButton
+              size="small"
+              color={activeRightPanel === MapSidebarItemID.SCENARIO ? "primary" : "default"}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (activeRightPanel === MapSidebarItemID.SCENARIO) {
+                  dispatch(setActiveRightPanel(undefined));
+                } else {
+                  dispatch(setActiveRightPanel(MapSidebarItemID.SCENARIO));
+                }
+              }}
+              sx={{ p: 0.5 }}>
+              <Icon htmlColor="inherit" iconName={ICON_NAME.SCENARIO} style={{ fontSize: "15px" }} />
             </IconButton>
           </Tooltip>
         )}

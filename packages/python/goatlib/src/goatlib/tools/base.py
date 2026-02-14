@@ -913,7 +913,11 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         for feat in scenario_features:
             edit_type = feat.get("edit_type")
             if edit_type in ("m", "d"):  # modified or deleted
-                modified_deleted_ids.append(feat["id"])
+                # feature_id is stored as TEXT; convert to int for DuckLake's INTEGER id column
+                try:
+                    modified_deleted_ids.append(int(feat["id"]))
+                except (ValueError, TypeError):
+                    pass  # skip non-integer feature_ids (e.g. old UUID values)
             if edit_type in ("n", "m"):  # new or modified
                 new_modified_features.append(feat)
 

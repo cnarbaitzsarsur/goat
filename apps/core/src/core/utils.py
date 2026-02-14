@@ -590,10 +590,11 @@ def to_feature_collection(
         else:
             dict_row = row
         geometry = None
-        if geometry_type == "wkb":
-            geometry = to_shape(dict_row[geometry_name])
-        elif geometry_type == "geojson":
-            geometry = geojsonloads(dict_row[geometry_name])
+        if dict_row.get(geometry_name) is not None:
+            if geometry_type == "wkb":
+                geometry = to_shape(dict_row[geometry_name])
+            elif geometry_type == "geojson":
+                geometry = geojsonloads(dict_row[geometry_name])
 
         features.append(
             Feature(

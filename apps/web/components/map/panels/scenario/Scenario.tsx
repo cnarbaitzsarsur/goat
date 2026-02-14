@@ -167,7 +167,7 @@ const ScenarioPanel = ({ projectId }: { projectId: string }) => {
                   setConfirmDeleteScenarioDialogOpen(false);
                 }}
                 onConfirm={async () => {
-                  setConfirmDeleteScenarioDialogOpen(true);
+                  setConfirmDeleteScenarioDialogOpen(false);
                   await deleteScenario();
                   mutate();
                 }}

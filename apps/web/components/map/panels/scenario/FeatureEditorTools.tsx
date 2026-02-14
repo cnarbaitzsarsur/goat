@@ -178,8 +178,8 @@ const FeatureEditorTools = ({
       }
       const selectedEditFeatures = features?.filter(
         (feature) =>
-          layerId === feature?.properties?.layer_id ||
-          projectLayerId === feature?.properties?.layer_project_id
+          feature.layer.id === layerId ||
+          feature.layer.id === projectLayerId?.toString()
       );
       if (selectedEditFeatures?.length && editType) {
         // Hide message toast
