@@ -516,13 +516,17 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
                 scenario_id=scenario_id,
                 project_id=project_id,
             )
+            # Detect geometry column name from the parquet
+            parquet_info = self._get_table_info(self.duckdb_con, f"'{temp_parquet}'")
+            geom_col = parquet_info.get("geometry_column", "geometry")
+
             # Read coordinates from the merged parquet
             result = self.duckdb_con.execute(f"""
                 SELECT
-                    ST_Y(ST_Centroid(geometry)) as lat,
-                    ST_X(ST_Centroid(geometry)) as lon
+                    ST_Y(ST_Centroid("{geom_col}")) as lat,
+                    ST_X(ST_Centroid("{geom_col}")) as lon
                 FROM '{temp_parquet}'
-                WHERE geometry IS NOT NULL
+                WHERE "{geom_col}" IS NOT NULL
             """).fetchall()
 
             import os

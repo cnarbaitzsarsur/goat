@@ -960,8 +960,8 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                 if col_name == "id":
                     row_values.append("?")
                     value_params.append(feat.get("id"))
-                elif col_name == "geometry":
-                    # Convert WKT to geometry
+                elif "GEOMETRY" in col_type.upper():
+                    # Convert WKT to geometry (column may be named "geometry" or "geom")
                     row_values.append("ST_GeomFromText(?)")
                     value_params.append(feat.get("geom"))
                 elif col_name in reverse_mapping:

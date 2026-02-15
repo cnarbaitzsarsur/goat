@@ -92,8 +92,8 @@ const ScenarioLayer = ({ scenarioLayerData, projectLayers }: ScenarioLayerProps)
                     "circle-color": scenarioFeatureStateColor as any,
                     "circle-radius":
                       (layer.properties["custom_marker"]
-                        ? layer.properties["marker_size"]
-                        : layer.properties["radius"] || 5) + 10,
+                        ? 12
+                        : (layer.properties["radius"] || 5) + 10),
                     "circle-opacity": layer.properties.opacity,
                   }}
                   filter={["in", ["get", "edit_type"], ["literal", ["d", "m", "n"]]]}
