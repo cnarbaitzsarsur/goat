@@ -16,7 +16,7 @@ class S3Service:
     def __init__(self) -> None:
         """
         Initialize an S3 client that can talk to either AWS S3
-        or an S3-compatible provider like Hetzner.
+        or an S3-compatible provider like Hetzner or MinIO.
         """
         extra_kwargs = {}
 
@@ -24,13 +24,16 @@ class S3Service:
         if settings.S3_ENDPOINT_URL:
             extra_kwargs["endpoint_url"] = settings.S3_ENDPOINT_URL
 
-        # Special config if talking to non-AWS
-        if settings.S3_PROVIDER.lower() == "hetzner":
+        # Special config for non-AWS providers
+        provider = (settings.S3_PROVIDER or "aws").lower()
+        if provider in {"hetzner", "minio"}:
+            # MinIO always needs path-style, Hetzner can use virtual
+            use_path_style = provider == "minio" or settings.S3_FORCE_PATH_STYLE
             extra_kwargs["config"] = Config(
                 signature_version="s3v4",
                 s3={
                     "payload_signing_enabled": False,
-                    "addressing_style": "virtual",
+                    "addressing_style": "path" if use_path_style else "virtual",
                 },
             )
 
@@ -41,6 +44,22 @@ class S3Service:
             region_name=settings.S3_REGION,
             **extra_kwargs,
         )
+
+        # Create a separate client for public URL signing (if different from internal)
+        self._public_client = None
+        if (
+            settings.S3_PUBLIC_ENDPOINT_URL
+            and settings.S3_PUBLIC_ENDPOINT_URL != settings.S3_ENDPOINT_URL
+        ):
+            public_extra = dict(extra_kwargs)
+            public_extra["endpoint_url"] = settings.S3_PUBLIC_ENDPOINT_URL
+            self._public_client = boto3.client(
+                "s3",
+                aws_access_key_id=settings.S3_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY,
+                region_name=settings.S3_REGION,
+                **public_extra,
+            )
 
     def generate_presigned_post(
         self,
@@ -146,6 +165,44 @@ class S3Service:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete file: {e}",
             )
+
+    def get_thumbnail_url(
+        self,
+        thumbnail_key: str | None,
+        default_url: str | None = None,
+        expires_in: int = 3600,
+    ) -> str | None:
+        """Convert a thumbnail S3 key to a presigned URL.
+
+        If the thumbnail_key is already a full URL (http/https), returns it as-is.
+        If it's an S3 key (starts with 'thumbnails/'), generates a presigned URL.
+        If it's None or empty, returns the default_url.
+
+        Args:
+            thumbnail_key: S3 key or full URL for the thumbnail
+            default_url: Default URL to return if thumbnail_key is None
+            expires_in: Presigned URL expiration time in seconds (default 1 hour)
+        """
+        if not thumbnail_key:
+            return default_url
+
+        # If already a full URL, return as-is
+        if thumbnail_key.startswith(("http://", "https://")):
+            return thumbnail_key
+
+        # It's an S3 key, generate presigned URL using public client if available
+        try:
+            # Use public client for user-facing URLs (if configured)
+            client = self._public_client if self._public_client else self.s3_client
+            params = {"Bucket": settings.S3_BUCKET_NAME, "Key": thumbnail_key}
+            return client.generate_presigned_url(
+                "get_object",
+                Params=params,
+                ExpiresIn=expires_in,
+            )
+        except ClientError as e:
+            logger.warning(f"Failed to generate presigned URL for {thumbnail_key}: {e}")
+            return default_url
 
     @staticmethod
     def calculate_sha256(file_content: bytes) -> str:

@@ -19,7 +19,6 @@ from sqlmodel import (
     Relationship,
     SQLModel,
     Text,
-    UniqueConstraint,
 )
 
 from core.core.config import settings
@@ -351,11 +350,16 @@ class LayerBase(ContentBaseAttributes):
     ) -> str | None:
         return validate_geographical_code(value)
 
-    @field_validator("distribution_url", "thumbnail_url", mode="before")
+    @field_validator("distribution_url", mode="before")
     @classmethod
     def convert_httpurl_to_str(
         cls: type["LayerBase"], value: str | HttpUrl | None
     ) -> str | None:
+        """Convert HttpUrl to string for distribution_url.
+
+        Note: thumbnail_url is handled separately by ThumbnailUrlMixin
+        in the schema layer, as it may be stored as an S3 key.
+        """
         if value is None:
             return value
         elif isinstance(value, HttpUrl):
@@ -515,9 +519,14 @@ class Layer(LayerBase, GeospatialAttributes, DateTimeBase, table=True):
             return str(to_shape(value).wkt)
         return value
 
-    @field_validator("url", "distribution_url", "thumbnail_url", mode="before")
+    @field_validator("url", "distribution_url", mode="before")
     @classmethod
     def convert_httpurl_to_str(cls, value: str | HttpUrl | None) -> str | None:
+        """Convert HttpUrl to string for url and distribution_url.
+
+        Note: thumbnail_url is handled separately by ThumbnailUrlMixin
+        in the schema layer, as it may be stored as an S3 key.
+        """
         if value is None:
             return value
         elif isinstance(value, HttpUrl):

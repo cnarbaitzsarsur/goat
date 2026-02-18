@@ -1,7 +1,7 @@
 # Standard library imports
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
-from uuid import UUID, uuid4
+from typing import Annotated, Any, Dict, List, Literal, Union
+from uuid import UUID
 
 # Third party imports
 from pydantic import (
@@ -18,6 +18,7 @@ from pyproj.exceptions import CRSError
 from shapely import wkt
 
 # Local application imports
+from core.core.config import settings
 from core.db.models._base_class import DateTimeBase, content_base_example
 from core.db.models.layer import (
     DataCategory,
@@ -37,6 +38,30 @@ from core.db.models.layer import (
 )
 from core.schemas.common import CQLQuery
 from core.utils import optional
+
+
+class ThumbnailUrlMixin(BaseModel):
+    """Mixin to convert thumbnail S3 keys to presigned URLs."""
+
+    @field_validator("thumbnail_url", mode="before", check_fields=False)
+    @classmethod
+    def convert_thumbnail_to_presigned_url(
+        cls: type["ThumbnailUrlMixin"], value: str | None
+    ) -> str | None:
+        """Convert S3 key to presigned URL if needed."""
+        if not value:
+            return settings.DEFAULT_LAYER_THUMBNAIL
+
+        # If already a full URL, return as-is
+        if value.startswith(("http://", "https://")):
+            return value
+
+        # It's an S3 key, generate presigned URL
+        from core.services.s3 import s3_service
+
+        return s3_service.get_thumbnail_url(
+            value, default_url=settings.DEFAULT_LAYER_THUMBNAIL
+        )
 
 
 class UserDataGeomType(Enum):
@@ -185,9 +210,13 @@ class ExternalServiceAttributesBase(BaseModel):
 
 
 class FeatureReadBaseAttributes(
-    LayerReadBaseAttributes, LayerBase, GeospatialAttributes
+    ThumbnailUrlMixin, LayerReadBaseAttributes, LayerBase, GeospatialAttributes
 ):
-    """Base model for feature layer reads."""
+    """Base model for feature layer reads.
+
+    Note: ThumbnailUrlMixin must come first in the inheritance chain to ensure
+    its field validator runs before LayerBase's HttpUrl validation.
+    """
 
     feature_layer_geometry_type: "FeatureGeometryType" = Field(
         ..., description="Feature layer geometry type"
@@ -405,6 +434,7 @@ class IRasterCreate(LayerBase, GeospatialAttributes, RasterAttributesBase):
 
 
 class RasterRead(
+    ThumbnailUrlMixin,
     LayerReadBaseAttributes,
     LayerBase,
     GeospatialAttributes,
@@ -412,7 +442,11 @@ class RasterRead(
     DateTimeBase,
     ExternalServiceAttributesBase,
 ):
-    """Model to read a raster layer."""
+    """Model to read a raster layer.
+
+    Note: ThumbnailUrlMixin must come first in the inheritance chain to ensure
+    its field validator runs before LayerBase's HttpUrl validation.
+    """
 
     type: Literal[LayerType.raster]
 
@@ -466,9 +500,17 @@ imagery_layer_update_base_example = {
 
 
 class TableRead(
-    LayerBase, LayerReadBaseAttributes, DateTimeBase, ExternalServiceAttributesBase
+    ThumbnailUrlMixin,
+    LayerBase,
+    LayerReadBaseAttributes,
+    DateTimeBase,
+    ExternalServiceAttributesBase,
 ):
-    """Model to read a table layer."""
+    """Model to read a table layer.
+
+    Note: ThumbnailUrlMixin must come first in the inheritance chain to ensure
+    its field validator runs before LayerBase's HttpUrl validation.
+    """
 
     type: Literal["table"]
     attribute_mapping: Dict[str, Any] | None = Field(

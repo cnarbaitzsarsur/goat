@@ -124,13 +124,25 @@ class WindmillTaskSyncer:
         }
 
         try:
-            # Try to update existing
-            response = self.client.post(
-                f"{self.base_url}/api/w/{self.workspace}/schedules/update/{schedule_path}",
-                json=schedule_data,
+            # Check if schedule exists first
+            check_response = self.client.get(
+                f"{self.base_url}/api/w/{self.workspace}/schedules/get/{schedule_path}",
             )
-            if response.status_code == 404:
-                # Create new
+
+            if check_response.status_code == 200:
+                # Schedule exists, update it
+                response = self.client.post(
+                    f"{self.base_url}/api/w/{self.workspace}/schedules/update/{schedule_path}",
+                    json={
+                        "schedule": task_def.schedule,
+                        "script_path": task_def.windmill_path,
+                        "is_flow": False,
+                        "args": {},
+                        "timezone": "UTC",
+                    },
+                )
+            else:
+                # Create new schedule
                 response = self.client.post(
                     f"{self.base_url}/api/w/{self.workspace}/schedules/create",
                     json=schedule_data,

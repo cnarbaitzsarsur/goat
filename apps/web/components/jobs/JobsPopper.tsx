@@ -1,6 +1,5 @@
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import DownloadIcon from "@mui/icons-material/Download";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Badge,
   Box,
@@ -59,23 +58,19 @@ export default function JobsPopper() {
   const { jobs, mutate } = useJobs({ read: false });
   const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set());
 
-  // Track which export jobs have been auto-downloaded to avoid duplicate downloads
+  // Track which export/print jobs have been auto-downloaded to avoid duplicate downloads
   const downloadedJobsRef = useRef<Set<string>>(new Set());
-  // Track which print jobs have shown toast notifications
-  const notifiedPrintJobsRef = useRef<Set<string>>(new Set());
   // Track jobs that were already successful on initial load (don't auto-download these)
   const initialSuccessfulJobsRef = useRef<Set<string> | null>(null);
-  // Track print jobs that were already completed on initial load (don't show toast for these)
-  const initialCompletedPrintJobsRef = useRef<Set<string> | null>(null);
 
   // Filter to get running/accepted jobs using OGC status
   const runningJobs = useMemo(() => {
     return jobs?.jobs?.filter((job) => job.status === "running" || job.status === "accepted");
   }, [jobs?.jobs]);
 
-  // Handle download for LayerExport jobs
-  const handleExportDownload = useCallback(
-    async (payload: Record<string, unknown> | undefined, showToast = false) => {
+  // Handle download for export and print jobs
+  const handleDownload = useCallback(
+    async (payload: Record<string, unknown> | undefined) => {
       if (!payload) return;
       try {
         const downloadUrl = payload.download_url as string;
@@ -83,28 +78,34 @@ export default function JobsPopper() {
         if (!downloadUrl) {
           throw new Error("No download_url in job payload");
         }
-        // Trigger download
+
+        // Fetch the file and create a blob URL for proper download
+        // This is needed for cross-origin URLs (like S3) where link.download doesn't work
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch file: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
         const link = document.createElement("a");
-        link.href = downloadUrl;
+        link.href = blobUrl;
         link.download = fileName;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        if (showToast) {
-          toast.success(t("download_started") || "Download started");
-        }
+        // Clean up the blob URL
+        URL.revokeObjectURL(blobUrl);
       } catch (error) {
         console.error("Download failed:", error);
-        if (showToast) {
-          toast.error(t("error_downloading") || "Download failed");
-        }
+        toast.error(t("error_downloading") || "Download failed");
       }
     },
     [t]
   );
 
-  // Auto-download completed export jobs (only for jobs that complete AFTER initial load)
+  // Auto-download completed export and print jobs (only for jobs that complete AFTER initial load)
   useEffect(() => {
     if (!jobs?.jobs) return;
 
@@ -112,19 +113,24 @@ export default function JobsPopper() {
     if (initialSuccessfulJobsRef.current === null) {
       initialSuccessfulJobsRef.current = new Set(
         jobs.jobs
-          .filter((job) => job.processID === "layer_export" && job.status === "successful")
+          .filter(
+            (job) =>
+              (job.processID === "layer_export" || job.processID === "print_report") &&
+              job.status === "successful"
+          )
           .map((job) => job.jobID)
       );
       return;
     }
 
     jobs.jobs.forEach((job) => {
-      // Only auto-download layer_export jobs that:
-      // 1. Completed successfully
-      // 2. Were NOT already successful on initial load
-      // 3. Haven't been downloaded yet in this session
+      // Only auto-download jobs that:
+      // 1. Are layer_export or print_report
+      // 2. Completed successfully
+      // 3. Were NOT already successful on initial load
+      // 4. Haven't been downloaded yet in this session
       if (
-        job.processID === "layer_export" &&
+        (job.processID === "layer_export" || job.processID === "print_report") &&
         job.status === "successful" &&
         !initialSuccessfulJobsRef.current?.has(job.jobID) &&
         !downloadedJobsRef.current.has(job.jobID)
@@ -133,50 +139,18 @@ export default function JobsPopper() {
         if (result?.download_url) {
           // Mark as downloaded before triggering to prevent race conditions
           downloadedJobsRef.current.add(job.jobID);
-          handleExportDownload(result, true);
+
+          // Dismiss all existing toasts and show success toast
+          toast.dismiss();
+          const jobType = t(job.processID) || job.processID;
+          toast.success(`"${jobType}" - ${t("job_success")}`);
+
+          // Trigger download
+          handleDownload(result);
         }
       }
     });
-  }, [jobs?.jobs, handleExportDownload]);
-
-  // Show toast notifications for completed print_report jobs
-  useEffect(() => {
-    if (!jobs?.jobs) return;
-
-    // On first load, capture which print jobs are already completed (don't show toast for these)
-    if (initialCompletedPrintJobsRef.current === null) {
-      initialCompletedPrintJobsRef.current = new Set(
-        jobs.jobs
-          .filter(
-            (job) =>
-              job.processID === "print_report" &&
-              (job.status === "successful" || job.status === "failed" || job.status === "dismissed")
-          )
-          .map((job) => job.jobID)
-      );
-      return;
-    }
-
-    jobs.jobs.forEach((job) => {
-      // Only show toast for print_report jobs that:
-      // 1. Have completed (successful or failed)
-      // 2. Were NOT already completed on initial load
-      // 3. Haven't shown a toast yet in this session
-      if (
-        job.processID === "print_report" &&
-        !initialCompletedPrintJobsRef.current?.has(job.jobID) &&
-        !notifiedPrintJobsRef.current.has(job.jobID)
-      ) {
-        if (job.status === "successful") {
-          notifiedPrintJobsRef.current.add(job.jobID);
-          toast.success(`"${t("print_report")}" - ${t("job_success")}`);
-        } else if (job.status === "failed" || job.status === "dismissed") {
-          notifiedPrintJobsRef.current.add(job.jobID);
-          toast.error(`"${t("print_report")}" - ${t("job_failed")}`);
-        }
-      }
-    });
-  }, [jobs?.jobs, t]);
+  }, [jobs?.jobs, handleDownload, t]);
 
   // Helper to render download button for export jobs
   const renderExportDownloadButton = (job: Job) => {
@@ -189,7 +163,7 @@ export default function JobsPopper() {
       <Tooltip title={t("download")}>
         <IconButton
           size="small"
-          onClick={() => handleExportDownload(result)}
+          onClick={() => handleDownload(result)}
           sx={{ fontSize: "1.2rem", color: "success.main" }}>
           <DownloadIcon fontSize="small" />
         </IconButton>
@@ -197,21 +171,20 @@ export default function JobsPopper() {
     );
   };
 
-  // Helper to render open button for print_report jobs
-  const renderPrintReportOpenButton = (job: Job) => {
+  // Helper to render download button for print_report jobs
+  const renderPrintReportDownloadButton = (job: Job) => {
     const result = job.result as Record<string, unknown> | undefined;
-    const canOpen = job.status === "successful" && result?.download_url;
+    const canDownload = job.status === "successful" && result?.download_url;
 
-    if (!canOpen) return undefined;
-
-    const handleOpenPdf = () => {
-      window.open(result.download_url as string, "_blank");
-    };
+    if (!canDownload) return undefined;
 
     return (
-      <Tooltip title={t("view")}>
-        <IconButton size="small" onClick={handleOpenPdf} sx={{ fontSize: "1.2rem", color: "success.main" }}>
-          <OpenInNewIcon fontSize="small" />
+      <Tooltip title={t("download")}>
+        <IconButton
+          size="small"
+          onClick={() => handleDownload(result)}
+          sx={{ fontSize: "1.2rem", color: "success.main" }}>
+          <DownloadIcon fontSize="small" />
         </IconButton>
       </Tooltip>
     );
@@ -273,7 +246,7 @@ export default function JobsPopper() {
       return renderExportDownloadButton(job);
     }
     if (job.processID === "print_report") {
-      return renderPrintReportOpenButton(job);
+      return renderPrintReportDownloadButton(job);
     }
     return undefined;
   };

@@ -13,7 +13,9 @@ Endpoints:
 - DELETE /jobs/{jobId} - Cancel/dismiss a job
 """
 
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import UUID
@@ -59,6 +61,10 @@ router = APIRouter(tags=["Processes"])
 # Instantiate services
 analytics_service = AnalyticsService()
 windmill_client = WindmillClient()
+
+# Thread pool for running blocking DuckDB analytics queries
+# This prevents long-running queries from blocking the async event loop
+_analytics_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="analytics")
 
 # Processes that can be executed without authentication (read-only analytics)
 # These are sync processes that only query data and don't modify anything
@@ -400,7 +406,33 @@ async def execute_process(
     # Check if this is a public-allowed analytics process (sync execution)
     if is_public_allowed_process(process_id):
         # Analytics processes are read-only and don't need authentication
-        result = _execute_analytics_sync(process_id, execute_request.inputs)
+        # Run in thread pool to avoid blocking the async event loop
+        # Apply timeout to prevent runaway queries
+        loop = asyncio.get_event_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _analytics_executor,
+                    _execute_analytics_sync,
+                    process_id,
+                    execute_request.inputs,
+                ),
+                timeout=settings.ANALYTICS_QUERY_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Analytics query {process_id} timed out after "
+                f"{settings.ANALYTICS_QUERY_TIMEOUT}s"
+            )
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "type": "http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/job-execution-failed",
+                    "title": "Query timeout",
+                    "status": 504,
+                    "detail": f"Query exceeded timeout of {settings.ANALYTICS_QUERY_TIMEOUT} seconds",
+                },
+            )
         return JSONResponse(status_code=200, content=result)
 
     # For all other processes, authentication is required

@@ -18,7 +18,7 @@
       "justMyCode": false,
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "uv-sync",
+      "preLaunchTask": "core-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "backend",
@@ -42,7 +42,7 @@
       "justMyCode": false,
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "uv-sync",
+      "preLaunchTask": "geoapi-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "backend",
@@ -66,7 +66,7 @@
       "justMyCode": false,
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "uv-sync",
+      "preLaunchTask": "processes-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "backend",
@@ -90,7 +90,7 @@
       "justMyCode": false,
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "uv-sync",
+      "preLaunchTask": "accounts-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "backend",
@@ -117,7 +117,7 @@
       "justMyCode": false,
       "jinja": true,
       "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "uv-sync",
+      "preLaunchTask": "routing-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "backend",
@@ -130,6 +130,7 @@
       "request": "launch",
       "envFile": "${workspaceFolder}/.env",
       "command": "pnpm run web",
+      "preLaunchTask": "web-pre-launch",
       "presentation": {
         "hidden": false,
         "group": "frontend",

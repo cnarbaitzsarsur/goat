@@ -58,10 +58,13 @@ export function useJobStatus(onSuccess?: () => void, onFailed?: () => void) {
 
         if (job.status === "successful") {
           onSuccessRef.current?.();
-          // Don't show success toast for delete jobs - already handled optimistically
+          // Don't show success toast for:
+          // - delete jobs: already handled optimistically
+          // - layer_export/print_report: handled in JobsPopper with auto-download
           const isDeleteJob =
             job.processID === "layer_delete" || job.processID.toLowerCase().includes("delete");
-          if (!isDeleteJob) {
+          const isDownloadJob = job.processID === "layer_export" || job.processID === "print_report";
+          if (!isDeleteJob && !isDownloadJob) {
             toast.success(`"${type}" - ${t("job_success")}`);
           }
         } else {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useDraggable } from "@dnd-kit/core";
-import { CancelOutlined as CancelOutlinedIcon, OpenInNew as OpenInNewIcon } from "@mui/icons-material";
+import { CancelOutlined as CancelOutlinedIcon, Download as DownloadIcon } from "@mui/icons-material";
 import {
   Box,
   Card,
@@ -203,9 +203,34 @@ const HistoryTabContent: React.FC<HistoryTabContentProps> = ({ projectId, layout
     return () => clearInterval(intervalId);
   }, [hasRunningJobs, mutate]);
 
-  const handleOpenPdf = (downloadUrl: string) => {
-    window.open(downloadUrl, "_blank");
-  };
+  const handleDownload = useCallback(
+    async (downloadUrl: string, fileName?: string) => {
+      try {
+        // Fetch the file and create a blob URL for proper download
+        // This is needed for cross-origin URLs (like S3) where link.download doesn't work
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch file: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = fileName || "report";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // Clean up the blob URL
+        URL.revokeObjectURL(blobUrl);
+      } catch (error) {
+        console.error("Download failed:", error);
+        toast.error(t("error_downloading") || "Download failed");
+      }
+    },
+    [t]
+  );
 
   // Handle cancel job
   const handleCancelJob = useCallback(
@@ -284,12 +309,12 @@ const HistoryTabContent: React.FC<HistoryTabContentProps> = ({ projectId, layout
               );
             } else if (canOpen) {
               actionButton = (
-                <Tooltip title={t("view")}>
+                <Tooltip title={t("download")}>
                   <IconButton
                     size="small"
-                    onClick={() => handleOpenPdf(result.download_url!)}
+                    onClick={() => handleDownload(result.download_url!, result.file_name as string)}
                     sx={{ fontSize: "1.2rem", color: "success.main" }}>
-                    <OpenInNewIcon fontSize="small" />
+                    <DownloadIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               );

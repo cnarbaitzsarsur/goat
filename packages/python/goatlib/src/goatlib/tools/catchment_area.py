@@ -609,12 +609,35 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
             params.user_id,
         )
 
-        # PT mode only supports a single starting point
-        if params.routing_mode == CatchmentAreaRoutingMode.pt and len(latitudes) > 1:
-            raise ValueError(
-                "Public transport catchment areas can only be computed for a single "
-                f"starting point. Got {len(latitudes)} starting points."
-            )
+        # Validate starting point limits based on routing mode
+        # These limits match the frontend validation in apps/web/lib/validations/tools.ts
+        num_starting_points = len(latitudes)
+
+        if params.routing_mode == CatchmentAreaRoutingMode.pt:
+            max_points = 5
+            if num_starting_points > max_points:
+                raise ValueError(
+                    f"Public transport catchment areas support a maximum of {max_points} "
+                    f"starting points. Got {num_starting_points} starting points."
+                )
+        elif params.routing_mode == CatchmentAreaRoutingMode.car:
+            max_points = 50
+            if num_starting_points > max_points:
+                raise ValueError(
+                    f"Car catchment areas support a maximum of {max_points} "
+                    f"starting points. Got {num_starting_points} starting points."
+                )
+        elif params.routing_mode in [
+            CatchmentAreaRoutingMode.walking,
+            CatchmentAreaRoutingMode.bicycle,
+            CatchmentAreaRoutingMode.pedelec,
+        ]:
+            max_points = 1000
+            if num_starting_points > max_points:
+                raise ValueError(
+                    f"Active mobility catchment areas support a maximum of {max_points} "
+                    f"starting points. Got {num_starting_points} starting points."
+                )
 
         # Build time window for PT routing
         time_window = None

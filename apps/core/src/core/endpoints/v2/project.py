@@ -251,11 +251,15 @@ async def read_project_initial_view_state(
     """Retrieve initial view state of a project by its ID."""
 
     # Get initial view state
-    user_project = (
-        await crud_user_project.get_by_multi_keys(
-            async_session, keys={"user_id": user_id, "project_id": project_id}
+    user_projects = await crud_user_project.get_by_multi_keys(
+        async_session, keys={"user_id": user_id, "project_id": project_id}
+    )
+    if not user_projects:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found or user has no access to this project",
         )
-    )[0]
+    user_project = user_projects[0]
     assert type(user_project) is UserProjectLink
     return InitialViewState(**user_project.initial_view_state)
 

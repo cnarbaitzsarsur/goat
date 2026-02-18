@@ -53,6 +53,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize DuckLake connection for sync analytics queries
     ducklake_manager.init(settings)
 
+    # Log resource limits for visibility
+    logger.info(
+        "DuckDB resource limits: memory=%s, threads=%s",
+        settings.DUCKDB_MEMORY_LIMIT,
+        settings.DUCKDB_THREADS,
+    )
+    logger.info("Analytics query timeout: %ss", settings.ANALYTICS_QUERY_TIMEOUT)
+
     logger.info("Processes API started successfully")
 
     yield

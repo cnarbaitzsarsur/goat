@@ -131,6 +131,8 @@ class DuckLakeSettings(Protocol):
     DUCKLAKE_S3_SECRET_KEY: str | None
     # Optional: DuckDB memory limit (e.g., "3GB", "1.5GB")
     # If not provided, DuckDB uses its default (typically 80% of system RAM)
+    # Optional: DuckDB thread limit (e.g., 2, 4)
+    # If not provided, DuckDB uses all available threads
 
 
 class BaseDuckLakeManager:
@@ -150,6 +152,7 @@ class BaseDuckLakeManager:
         self._extensions_installed: bool = False
         self._read_only: bool = read_only
         self._memory_limit: str | None = None
+        self._threads: int | None = None
 
     def init(self: "BaseDuckLakeManager", settings: DuckLakeSettings) -> None:
         """Initialize DuckLake connection."""
@@ -159,6 +162,7 @@ class BaseDuckLakeManager:
         self._s3_access_key = getattr(settings, "DUCKLAKE_S3_ACCESS_KEY", None)
         self._s3_secret_key = getattr(settings, "DUCKLAKE_S3_SECRET_KEY", None)
         self._memory_limit = getattr(settings, "DUCKDB_MEMORY_LIMIT", None)
+        self._threads = getattr(settings, "DUCKDB_THREADS", None)
 
         s3_bucket = getattr(settings, "DUCKLAKE_S3_BUCKET", None)
         if s3_bucket:
@@ -207,6 +211,13 @@ class BaseDuckLakeManager:
         con = duckdb.connect()
         if self._memory_limit:
             con.execute(f"SET memory_limit='{self._memory_limit}'")
+        if self._threads:
+            con.execute(f"SET threads={self._threads}")
+        # Configure allocator to release memory back to OS more aggressively
+        # Default is ~128MB, lowering it causes more frequent memory releases
+        con.execute("SET allocator_flush_threshold='64MB'")
+        # Enable background threads for memory cleanup
+        con.execute("SET allocator_background_threads=true")
         self._install_extensions(con)
         self._load_extensions(con)
         self._setup_s3(con)
@@ -326,7 +337,16 @@ class BaseDuckLakeManager:
         if self._extensions_installed:
             return
         for ext in self.REQUIRED_EXTENSIONS:
-            con.execute(f"INSTALL {ext}")
+            try:
+                con.execute(f"INSTALL {ext}")
+            except duckdb.IOException as e:
+                # Extension might already be installed or network unavailable
+                # Try to load it - if it's installed, this will work
+                logger.warning(
+                    "Could not install extension %s (may already be installed): %s",
+                    ext,
+                    e,
+                )
         logger.info("Installed DuckDB extensions: %s", self.REQUIRED_EXTENSIONS)
         self._extensions_installed = True
 
@@ -438,6 +458,7 @@ class DuckLakePool:
         self._s3_secret_key: str | None = None
         self._extensions_installed: bool = False
         self._memory_limit: str | None = None
+        self._threads: int | None = None
 
     def init(self, settings: DuckLakeSettings) -> None:
         """Initialize the connection pool from settings."""
@@ -451,6 +472,7 @@ class DuckLakePool:
             self._s3_access_key = getattr(settings, "DUCKLAKE_S3_ACCESS_KEY", None)
             self._s3_secret_key = getattr(settings, "DUCKLAKE_S3_SECRET_KEY", None)
             self._memory_limit = getattr(settings, "DUCKDB_MEMORY_LIMIT", None)
+            self._threads = getattr(settings, "DUCKDB_THREADS", None)
 
             s3_bucket = getattr(settings, "DUCKLAKE_S3_BUCKET", None)
             if s3_bucket:
@@ -529,6 +551,14 @@ class DuckLakePool:
         # Apply memory limit if configured
         if self._memory_limit:
             con.execute(f"SET memory_limit='{self._memory_limit}'")
+
+        # Apply thread limit if configured
+        if self._threads:
+            con.execute(f"SET threads={self._threads}")
+
+        # Configure allocator to release memory back to OS more aggressively
+        con.execute("SET allocator_flush_threshold='64MB'")
+        con.execute("SET allocator_background_threads=true")
 
         # Install and load extensions
         for ext in self.REQUIRED_EXTENSIONS:

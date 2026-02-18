@@ -2,7 +2,7 @@ import { createSlice } from "@reduxjs/toolkit";
 import type { PayloadAction } from "@reduxjs/toolkit";
 import type { MapGeoJSONFeature } from "react-map-gl/maplibre";
 
-import { MAPTILER_KEY } from "@/lib/constants";
+import { BASEMAPS } from "@/lib/constants/basemaps";
 import type { UnitPreference } from "@/lib/utils/measurementUnits";
 import type { BuilderPanelSchema, BuilderWidgetSchema, Project } from "@/lib/validations/project";
 import type { Scenario } from "@/lib/validations/scenario";
@@ -95,57 +95,7 @@ export interface MapState {
 
 const initialState = {
   project: undefined,
-  basemaps: [
-    {
-      value: "streets",
-      url: `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`,
-      title: "High Fidelity",
-      subtitle: "Great for public presentations",
-      thumbnail: `https://cloud.maptiler.com/static/img/maps/streets-v2.png`,
-    },
-    {
-      value: "satellite",
-      url: `https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`,
-      title: "Satellite",
-      subtitle: "As seen from space",
-      thumbnail: "https://cloud.maptiler.com/static/img/maps/satellite.png",
-    },
-    {
-      value: "light",
-      url: `https://api.maptiler.com/maps/dataviz-light/style.json?key=${MAPTILER_KEY}`,
-      title: "Light",
-      subtitle: "For highlighting data overlays",
-      thumbnail: "https://media.maptiler.com/old/img/cloud/slider/streets-v2-light.png",
-    },
-    {
-      value: "dark",
-      url: `https://api.maptiler.com/maps/dataviz-dark/style.json?key=${MAPTILER_KEY}`,
-      title: "Dark",
-      subtitle: "For highlighting data overlays",
-      thumbnail: "https://media.maptiler.com/old/img/cloud/slider/streets-v2-dark.png",
-    },
-    {
-      value: "basemap_de_col",
-      url: `https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_col.json`,
-      title: "BKG Basemap",
-      subtitle: "Colored",
-      thumbnail: "https://basemap.de/viewer/assets/basemap_colour.png",
-    },
-    {
-      value: "basemap_de_gry",
-      url: `https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_gry.json`,
-      title: "BKG Basemap",
-      subtitle: "Grayscale",
-      thumbnail: "https://basemap.de/viewer/assets/basemap_greyscale.png",
-    },
-    {
-      value: "basemap_de_top",
-      url: `https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_top.json`,
-      title: "BKG Basemap",
-      subtitle: "Topographic",
-      thumbnail: "https://basemap.de/viewer/assets/basemap_hillshade.png",
-    },
-  ],
+  basemaps: BASEMAPS,
   maskLayer: undefined,
   activeBasemap: undefined,
   activeLeftPanel: MapSidebarItemID.LAYERS,

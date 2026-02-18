@@ -6,7 +6,6 @@ from uuid import UUID
 from pydantic import (
     UUID4,
     BaseModel,
-    HttpUrl,
     ValidationInfo,
     field_validator,
 )
@@ -96,7 +95,7 @@ class IProjectCreate(ContentBaseAttributes):
 class IProjectRead(ContentBaseAttributes, DateTimeBase):
     id: UUID = Field(..., description="Project ID")
     layer_order: list[int] | None = Field(None, description="Layer order in project")
-    thumbnail_url: HttpUrl | None = Field(description="Project thumbnail URL")
+    thumbnail_url: str | None = Field(description="Project thumbnail URL")
     active_scenario_id: UUID | None = Field(None, description="Active scenario ID")
     basemap: str | None = Field(None, description="Project basemap")
     shared_with: dict[str, Any] | None = Field(None, description="Shared with")
@@ -110,6 +109,26 @@ class IProjectRead(ContentBaseAttributes, DateTimeBase):
         sa_column=Column(ARRAY(Text), nullable=True),
         description="Layer tags",
     )
+
+    @field_validator("thumbnail_url", mode="before")
+    @classmethod
+    def convert_thumbnail_to_presigned_url(
+        cls: type["IProjectRead"], value: str | None
+    ) -> str | None:
+        """Convert S3 key to presigned URL if needed."""
+        if not value:
+            return settings.DEFAULT_PROJECT_THUMBNAIL
+
+        # If already a full URL, return as-is
+        if value.startswith(("http://", "https://")):
+            return value
+
+        # It's an S3 key, generate presigned URL
+        from core.services.s3 import s3_service
+
+        return s3_service.get_thumbnail_url(
+            value, default_url=settings.DEFAULT_PROJECT_THUMBNAIL
+        )
 
 
 class IProjectBaseUpdate(SQLModel):
@@ -290,7 +309,7 @@ class ProjectPublicProjectConfig(BaseModel):
     name: str = Field(..., description="Project name")
     description: str | None = Field(..., description="Project description")
     tags: List[str] | None = Field(default=None, description="Project tags")
-    thumbnail_url: HttpUrl | None = Field(None, description="Project thumbnail URL")
+    thumbnail_url: str | None = Field(None, description="Project thumbnail URL")
     initial_view_state: InitialViewState = Field(
         ..., description="Initial view state of the project"
     )
@@ -301,6 +320,26 @@ class ProjectPublicProjectConfig(BaseModel):
     )
     folder_id: UUID = Field(..., description="Folder ID")
     builder_config: dict[str, Any] | None = Field(None, description="Builder config")
+
+    @field_validator("thumbnail_url", mode="before")
+    @classmethod
+    def convert_thumbnail_to_presigned_url(
+        cls: type["ProjectPublicProjectConfig"], value: str | None
+    ) -> str | None:
+        """Convert S3 key to presigned URL if needed."""
+        if not value:
+            return settings.DEFAULT_PROJECT_THUMBNAIL
+
+        # If already a full URL, return as-is
+        if value.startswith(("http://", "https://")):
+            return value
+
+        # It's an S3 key, generate presigned URL
+        from core.services.s3 import s3_service
+
+        return s3_service.get_thumbnail_url(
+            value, default_url=settings.DEFAULT_PROJECT_THUMBNAIL
+        )
 
 
 class ProjectPublicConfig(BaseModel):

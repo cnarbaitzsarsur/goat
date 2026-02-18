@@ -1,6 +1,8 @@
 "use client";
 
+import { cogProtocol } from "@geomatico/maplibre-cog-protocol";
 import { Box, CircularProgress, Typography } from "@mui/material";
+import maplibregl from "maplibre-gl";
 import { useParams, useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -18,6 +20,8 @@ import { useBasemap } from "@/hooks/map/MapHooks";
 import { useAtlasFeatures } from "@/hooks/reports/useAtlasFeatures";
 
 import { ElementContentRenderer } from "@/components/reports/elements/renderers/ElementRenderers";
+
+maplibregl.addProtocol("cog", cogProtocol);
 
 // Print DPI - higher quality for PDF output (used when generating the actual PDF)
 // const PRINT_DPI = 300;

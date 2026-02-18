@@ -66,11 +66,12 @@ class Settings(BaseSettings):
     DEFAULT_EXTENT: int = 4096
 
     # Connection pool size for concurrent tile requests
-    # Lower values reduce idle connections that can go stale
-    DUCKLAKE_POOL_SIZE: int = int(os.getenv("GEOAPI_DUCKLAKE_POOL_SIZE", "4"))
+    # Lower values reduce memory usage and idle connections that can go stale
+    DUCKLAKE_POOL_SIZE: int = int(os.getenv("GEOAPI_DUCKLAKE_POOL_SIZE", "2"))
 
-    # DuckDB memory limit (e.g., "3GB", "512MB")
-    DUCKDB_MEMORY_LIMIT: str = os.getenv("GEOAPI_DUCKDB_MEMORY_LIMIT", "3GB")
+    # DuckDB memory limit per connection (e.g., "1GB", "512MB")
+    # Total potential memory = DUCKLAKE_POOL_SIZE * DUCKDB_MEMORY_LIMIT
+    DUCKDB_MEMORY_LIMIT: str = os.getenv("GEOAPI_DUCKDB_MEMORY_LIMIT", "1GB")
 
     # Timeout Settings (in seconds)
     REQUEST_TIMEOUT: int = int(os.getenv("GEOAPI_REQUEST_TIMEOUT", "30"))
@@ -80,6 +81,15 @@ class Settings(BaseSettings):
     FEATURE_TIMEOUT: int = int(os.getenv("GEOAPI_FEATURE_TIMEOUT", "30"))
     # DuckDB query timeout - queries exceeding this will be interrupted
     QUERY_TIMEOUT: int = int(os.getenv("GEOAPI_QUERY_TIMEOUT", "10"))
+
+    # Redis settings for distributed tile caching
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    # Tile cache TTL in seconds (default 1 hour)
+    TILE_CACHE_TTL: int = int(os.getenv("GEOAPI_TILE_CACHE_TTL", "3600"))
+    # Enable/disable Redis tile cache
+    TILE_CACHE_ENABLED: bool = (
+        os.getenv("GEOAPI_TILE_CACHE_ENABLED", "true").lower() == "true"
+    )
 
     # CORS settings
     CORS_ORIGINS: list[str] = ["*"]

@@ -62,23 +62,23 @@ TASK_REGISTRY: tuple[TaskDefinition, ...] = (
         worker_tag="tools",
     ),
     TaskDefinition(
-        name="queue_pmtiles_sync",
-        display_name="Queue PMTiles Sync",
-        description="Queue PMTiles sync jobs for parallel processing by workers",
-        module_path="goatlib.tasks.queue_pmtiles_sync",
-        params_class_name="QueuePMTilesSyncParams",
-        windmill_path="f/goat/tasks/queue_pmtiles_sync",
-        schedule=None,  # Run manually
-        worker_tag="tools",
+        name="generate_thumbnails",
+        display_name="Generate Thumbnails",
+        description="Generate thumbnails for projects and layers that have been updated",
+        module_path="goatlib.tasks.generate_thumbnails",
+        params_class_name="ThumbnailTaskParams",
+        windmill_path="f/goat/tasks/generate_thumbnails",
+        schedule="0 */10 * * * *",  # Every 10 minutes (Windmill uses 6-field cron)
+        worker_tag="print",  # Uses print worker with Playwright
     ),
     TaskDefinition(
-        name="sync_single_pmtile",
-        display_name="Sync Single PMTile",
-        description="Generate PMTiles for a single layer (called by queue_pmtiles_sync)",
-        module_path="goatlib.tasks.sync_single_pmtile",
-        params_class_name="SinglePMTileParams",
-        windmill_path="f/goat/tasks/sync_single_pmtile",
-        schedule=None,  # Called by queue task
+        name="download_s3_folder",
+        display_name="Download S3 Folder",
+        description="Download a folder from S3 with resume support and validation",
+        module_path="goatlib.tasks.download_s3_folder",
+        params_class_name="DownloadS3FolderParams",
+        windmill_path="f/goat/tasks/download_s3_folder",
+        schedule=None,  # Run manually
         worker_tag="tools",
     ),
 )

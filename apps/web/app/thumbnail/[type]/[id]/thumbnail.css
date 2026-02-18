@@ -1,0 +1,27 @@
+/* Thumbnail page CSS - minimal styling for clean map capture */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 800px;
+  height: 450px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+/* Hide maplibre logo and attribution for cleaner thumbnails */
+.maplibregl-ctrl-logo,
+.maplibregl-ctrl-attrib {
+  display: none !important;
+}
+
+/* Ensure map fills container */
+.maplibregl-map {
+  width: 100% !important;
+  height: 100% !important;
+}

@@ -12,6 +12,10 @@ Variable-depth tile pyramid support:
 PMTiles generated with --generate-variable-depth-tile-pyramid may not have
 tiles at all zoom levels. When a tile is missing, we find the nearest parent
 tile and use tippecanoe-overzoom to generate the requested tile on-the-fly.
+
+Caching:
+- Redis cache for distributed deployments (shared across pods)
+- In-memory cache for PMTiles readers (file handles, cannot be shared)
 """
 
 import asyncio
@@ -19,17 +23,26 @@ import gzip
 import logging
 import math
 import tempfile
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from io import BufferedReader
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from goatlib.storage import build_filters
 from pmtiles.reader import MmapSource
-from pmtiles.reader import Reader as PMTilesReader
+from pmtiles.tile import (
+    deserialize_directory,
+    deserialize_header,
+    find_tile,
+    zxy_to_tileid,
+)
 
 from geoapi.config import settings
 from geoapi.dependencies import LayerInfo
 from geoapi.ducklake_pool import ducklake_pool
+from geoapi.tile_cache import cache_tile, get_cached_tile
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +50,150 @@ logger = logging.getLogger(__name__)
 WEB_MERCATOR_EXTENT = 20037508.342789244
 
 # Thread pool for PMTiles I/O (file reads are blocking)
-_pmtiles_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pmtiles")
+# 16 workers - balanced for parallel file access without overwhelming resources
+# Per-file locking in _get_cached_pmtiles_reader prevents contention
+_pmtiles_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="pmtiles")
 
 # Thread pool for dynamic tile generation (DuckDB queries are blocking)
 _dynamic_tile_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="dyntile")
+
+# Maximum leaf directory entries to cache per PMTiles file (~64KB per file)
+_LEAF_CACHE_MAX_SIZE = 1000
+
+
+class CachedPMTilesReader:
+    """Optimized PMTiles reader that caches header and root directory.
+
+    The standard pmtiles library re-parses the header and decompresses
+    the root directory on every get() call. This class caches them.
+    """
+
+    def __init__(self, get_bytes):
+        self.get_bytes = get_bytes
+        # Parse header once
+        self._header = deserialize_header(self.get_bytes(0, 127))
+        # Parse and cache root directory once
+        root_bytes = self.get_bytes(
+            self._header["root_offset"], self._header["root_length"]
+        )
+        self._root_directory = deserialize_directory(root_bytes)
+        # Cache for leaf directories with size limit (FIFO eviction)
+        self._leaf_cache: dict[tuple[int, int], list] = {}
+
+    def header(self):
+        return self._header
+
+    def get(self, z: int, x: int, y: int) -> Optional[bytes]:
+        """Get tile data with cached directory lookups."""
+        tile_id = zxy_to_tileid(z, x, y)
+        header = self._header
+
+        # Start with cached root directory
+        directory = self._root_directory
+
+        for depth in range(0, 4):  # max depth
+            result = find_tile(directory, tile_id)
+            if result:
+                if result.run_length == 0:
+                    # Need to read leaf directory
+                    leaf_offset = header["leaf_directory_offset"] + result.offset
+                    leaf_length = result.length
+
+                    # Check leaf cache
+                    cache_key = (leaf_offset, leaf_length)
+                    if cache_key in self._leaf_cache:
+                        directory = self._leaf_cache[cache_key]
+                    else:
+                        # Evict oldest entries if cache is full
+                        while len(self._leaf_cache) >= _LEAF_CACHE_MAX_SIZE:
+                            oldest_key = next(iter(self._leaf_cache))
+                            del self._leaf_cache[oldest_key]
+                        # Read and cache leaf directory
+                        leaf_bytes = self.get_bytes(leaf_offset, leaf_length)
+                        directory = deserialize_directory(leaf_bytes)
+                        self._leaf_cache[cache_key] = directory
+                else:
+                    # Found tile data
+                    return self.get_bytes(
+                        header["tile_data_offset"] + result.offset, result.length
+                    )
+            else:
+                return None
+        return None
+
+
+# PMTiles reader cache to avoid re-parsing the index for every tile request
+# key=pmtiles_path -> (reader, header, file_handle, mtime)
+# NOTE: This must remain in-memory (file handles cannot be serialized to Redis)
+_pmtiles_reader_cache: dict[
+    str, tuple[CachedPMTilesReader, Any, BufferedReader, float]
+] = {}
+_pmtiles_reader_cache_lock = threading.Lock()  # Protects cache dict access only
+_pmtiles_file_locks: dict[str, threading.Lock] = {}  # Per-file locks for creation
+_PMTILES_READER_CACHE_MAX_SIZE = 30  # Max cached readers (limits open file handles)
+
+
+def _get_cached_pmtiles_reader(
+    pmtiles_path: Path,
+) -> tuple[CachedPMTilesReader, Any, bool]:
+    """Get or create a cached PMTiles reader.
+
+    Uses per-file locking so requests for different files can proceed in parallel.
+
+    Returns:
+        Tuple of (reader, header, is_gzip)
+    """
+    path_str = str(pmtiles_path)
+
+    # Fast path: check if already cached (minimal lock time)
+    with _pmtiles_reader_cache_lock:
+        if path_str in _pmtiles_reader_cache:
+            reader, header, fh, cached_mtime = _pmtiles_reader_cache[path_str]
+            tile_compression = header.get("tile_compression")
+            is_gzip = bool(tile_compression and tile_compression.value == 2)
+            return reader, header, is_gzip
+
+        # Get or create per-file lock
+        if path_str not in _pmtiles_file_locks:
+            _pmtiles_file_locks[path_str] = threading.Lock()
+        file_lock = _pmtiles_file_locks[path_str]
+
+    # Acquire per-file lock (allows parallel opens of different files)
+    with file_lock:
+        # Double-check after acquiring lock (another thread may have created it)
+        with _pmtiles_reader_cache_lock:
+            if path_str in _pmtiles_reader_cache:
+                reader, header, fh, cached_mtime = _pmtiles_reader_cache[path_str]
+                tile_compression = header.get("tile_compression")
+                is_gzip = bool(tile_compression and tile_compression.value == 2)
+                return reader, header, is_gzip
+
+        # Not in cache - open file (outside global lock)
+        current_mtime = pmtiles_path.stat().st_mtime
+        fh = open(pmtiles_path, "rb")
+        source = MmapSource(fh)
+        reader = CachedPMTilesReader(source)
+        header = reader.header()
+
+        # Store in cache (brief lock)
+        with _pmtiles_reader_cache_lock:
+            # Evict oldest entries if cache is full
+            if len(_pmtiles_reader_cache) >= _PMTILES_READER_CACHE_MAX_SIZE:
+                oldest_key = next(iter(_pmtiles_reader_cache))
+                old_reader, old_header, old_fh, _ = _pmtiles_reader_cache[oldest_key]
+                try:
+                    old_fh.close()
+                except Exception:
+                    pass
+                del _pmtiles_reader_cache[oldest_key]
+                # Clean up file lock too
+                _pmtiles_file_locks.pop(oldest_key, None)
+
+            _pmtiles_reader_cache[path_str] = (reader, header, fh, current_mtime)
+
+        tile_compression = header.get("tile_compression")
+        is_gzip = bool(tile_compression and tile_compression.value == 2)
+        return reader, header, is_gzip
 
 
 def tile_to_bbox_4326(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -60,6 +213,67 @@ def tile_to_bbox_4326(z: int, x: int, y: int) -> tuple[float, float, float, floa
     lat_max = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
     lat_min = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
     return (lon_min, lat_min, lon_max, lat_max)
+
+
+def get_bounds_from_pmtiles_header(header) -> tuple[float, float, float, float]:
+    """Extract bounds from PMTiles header.
+
+    PMTiles v3 stores bounds as e7 (10^7) format integers: min_lon_e7, min_lat_e7, etc.
+    Some PMTiles may have float bounds: min_lon, min_lat, etc.
+
+    Args:
+        header: PMTiles header dictionary
+
+    Returns:
+        Tuple of (min_lon, min_lat, max_lon, max_lat) in EPSG:4326
+    """
+    # Try e7 format first (PMTiles v3 standard)
+    min_lon_e7 = header.get("min_lon_e7")
+    if min_lon_e7 is not None:
+        return (
+            min_lon_e7 / 1e7,
+            header.get("min_lat_e7", -850000000) / 1e7,
+            header.get("max_lon_e7", 1800000000) / 1e7,
+            header.get("max_lat_e7", 850000000) / 1e7,
+        )
+
+    # Fallback to float format (older or custom PMTiles)
+    return (
+        header.get("min_lon", -180),
+        header.get("min_lat", -85),
+        header.get("max_lon", 180),
+        header.get("max_lat", 85),
+    )
+
+
+def tile_intersects_bounds(
+    z: int,
+    x: int,
+    y: int,
+    bounds_min_lon: float,
+    bounds_min_lat: float,
+    bounds_max_lon: float,
+    bounds_max_lat: float,
+) -> bool:
+    """Check if a tile intersects the given bounds (EPSG:4326).
+
+    Args:
+        z, x, y: Tile coordinates
+        bounds_*: Bounding box in EPSG:4326 (lon/lat)
+
+    Returns:
+        True if tile intersects bounds, False otherwise
+    """
+    tile_bbox = tile_to_bbox_4326(z, x, y)
+    tile_min_lon, tile_min_lat, tile_max_lon, tile_max_lat = tile_bbox
+
+    # Check if boxes don't overlap
+    if tile_max_lon < bounds_min_lon or tile_min_lon > bounds_max_lon:
+        return False
+    if tile_max_lat < bounds_min_lat or tile_min_lat > bounds_max_lat:
+        return False
+
+    return True
 
 
 def tile_to_bbox_3857(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -93,6 +307,50 @@ class TileService:
         self.tiles_data_dir = Path(settings.TILES_DATA_DIR)
         # Track which PMTiles files exist (simple path cache)
         self._pmtiles_exists_cache: dict[str, bool] = {}
+        # Cache PMTiles paths by layer_id (avoids glob on every request)
+        self._pmtiles_path_cache: dict[str, Path | None] = {}
+
+    def _find_pmtiles_by_layer_id(self, layer_id: str) -> Path | None:
+        """Find PMTiles file for a layer using glob search (no schema lookup needed).
+
+        This bypasses the DuckDB schema lookup by searching the filesystem directly.
+        PMTiles are stored as: {tiles_data_dir}/{schema_name}/t_{layer_id_no_hyphens}.pmtiles
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+
+        Returns:
+            Path to PMTiles file if found, None otherwise
+        """
+        # Normalize layer_id (remove hyphens)
+        layer_id_normalized = layer_id.replace("-", "")
+
+        # Check cache first - only return if we found a path (don't cache None)
+        cached = self._pmtiles_path_cache.get(layer_id_normalized)
+        if cached is not None:
+            return cached
+
+        # Search for PMTiles file: */t_{layer_id}.pmtiles
+        pattern = f"*/t_{layer_id_normalized}.pmtiles"
+        matches = list(self.tiles_data_dir.glob(pattern))
+
+        if matches:
+            path = matches[0]
+            self._pmtiles_path_cache[layer_id_normalized] = path
+            return path
+        else:
+            # Don't cache None - PMTiles might be generated later
+            return None
+
+    def invalidate_pmtiles_path_cache(self, layer_id: str) -> None:
+        """Invalidate the PMTiles path cache for a layer.
+
+        Call this when PMTiles are regenerated or deleted.
+        """
+        layer_id_normalized = layer_id.replace("-", "")
+        if layer_id_normalized in self._pmtiles_path_cache:
+            del self._pmtiles_path_cache[layer_id_normalized]
+            logger.debug("Invalidated PMTiles path cache for layer %s", layer_id)
 
     def _get_pmtiles_path(self, layer_info: LayerInfo) -> Path:
         """Get the PMTiles file path for a layer.
@@ -182,6 +440,310 @@ class TileService:
         # Check if PMTiles exist
         return self._pmtiles_exists(layer_info)
 
+    def can_serve_from_pmtiles(
+        self,
+        layer_info: LayerInfo,
+        cql_filter: Optional[dict] = None,
+        bbox: Optional[list[float]] = None,
+    ) -> bool:
+        """Public method to check if PMTiles can be used for this request.
+
+        This is used by the router to skip expensive metadata lookups.
+
+        Args:
+            layer_info: Layer information
+            cql_filter: Optional CQL filter
+            bbox: Optional additional bbox filter
+
+        Returns:
+            True if PMTiles can serve this request
+        """
+        return self._should_use_pmtiles(layer_info, cql_filter, bbox)
+
+    async def get_tile_from_pmtiles_only(
+        self,
+        layer_info: LayerInfo,
+        z: int,
+        x: int,
+        y: int,
+    ) -> Optional[tuple[bytes, bool, str]]:
+        """Get tile directly from PMTiles without metadata lookup.
+
+        Fast path for tile serving when PMTiles exist and no filters are applied.
+
+        Args:
+            layer_info: Layer information
+            z: Zoom level
+            x: Tile X coordinate
+            y: Tile Y coordinate
+
+        Returns:
+            Tuple of (tile_data, is_gzip, source) or None if PMTiles not available
+        """
+        if not self._pmtiles_exists(layer_info):
+            return None
+
+        result = await self._get_tile_from_pmtiles(layer_info, z, x, y)
+        if result is None:
+            return None
+
+        tile_data, is_gzip = result
+        return (tile_data, is_gzip, "pmtiles")
+
+    def can_serve_from_pmtiles_by_layer_id(
+        self,
+        layer_id: str,
+        cql_filter: Optional[dict] = None,
+        bbox: Optional[list[float]] = None,
+    ) -> bool:
+        """Check if PMTiles can serve this request using only layer_id.
+
+        Ultra-fast path that avoids DuckDB schema lookup entirely.
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+            cql_filter: Optional CQL filter
+            bbox: Optional additional bbox filter
+
+        Returns:
+            True if PMTiles can serve this request
+        """
+        # If filters are applied, need dynamic generation
+        if cql_filter or bbox:
+            return False
+
+        # Check if PMTiles exist using glob search
+        return self._find_pmtiles_by_layer_id(layer_id) is not None
+
+    async def get_tile_from_pmtiles_by_layer_id(
+        self,
+        layer_id: str,
+        z: int,
+        x: int,
+        y: int,
+    ) -> Optional[tuple[bytes, bool, str]]:
+        """Get tile directly from PMTiles using only layer_id (no schema lookup).
+
+        Ultra-fast path that completely bypasses DuckDB.
+        Uses Redis cache for distributed deployments.
+
+        Args:
+            layer_id: Layer UUID (with or without hyphens)
+            z: Zoom level
+            x: Tile X coordinate
+            y: Tile Y coordinate
+
+        Returns:
+            Tuple of (tile_data, is_gzip, source) or None if PMTiles not available
+        """
+        start_time = time.monotonic()
+
+        # Check Redis cache first (fast path for distributed deployments)
+        cached = get_cached_tile(layer_id, z, x, y)
+        if cached is not None:
+            tile_data, is_gzip = cached
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+            logger.debug(
+                "Redis cache hit for %s tile %d/%d/%d: %d bytes (%.1fms)",
+                layer_id[:8],
+                z,
+                x,
+                y,
+                len(tile_data),
+                elapsed_ms,
+            )
+            return (tile_data, is_gzip, "pmtiles-cached")
+
+        # Step 1: Find PMTiles path
+        pmtiles_path = self._find_pmtiles_by_layer_id(layer_id)
+        if pmtiles_path is None:
+            return None
+
+        # Step 2: Read tile from PMTiles
+        result = await self._get_tile_from_pmtiles_path(pmtiles_path, z, x, y)
+
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        if result is None:
+            logger.debug(
+                "PMTiles %s tile %d/%d/%d: not found (%.1fms)",
+                pmtiles_path.name,
+                z,
+                x,
+                y,
+                elapsed_ms,
+            )
+            return None
+
+        tile_data, is_gzip = result
+
+        # Cache in Redis for other pods
+        if tile_data:
+            cache_tile(layer_id, z, x, y, tile_data, is_gzip)
+
+        logger.info(
+            "PMTiles %s tile %d/%d/%d: %d bytes (%.1fms)",
+            pmtiles_path.name,
+            z,
+            x,
+            y,
+            len(tile_data),
+            elapsed_ms,
+        )
+        return (tile_data, is_gzip, "pmtiles")
+
+    async def _get_tile_from_pmtiles_path(
+        self, pmtiles_path: Path, z: int, x: int, y: int
+    ) -> Optional[tuple[bytes, bool]]:
+        """Get tile data from a specific PMTiles file path.
+
+        Supports variable-depth tile pyramids with overzoom.
+        NOTE: Redis caching is done at the caller level (get_tile_from_pmtiles_by_layer_id).
+
+        Args:
+            pmtiles_path: Path to PMTiles file
+            z: Zoom level
+            x: Tile X coordinate
+            y: Tile Y coordinate
+
+        Returns:
+            Tuple of (tile_data, is_gzip_compressed) or None if tile not found
+        """
+
+        def _read_tile() -> (
+            Optional[tuple[bytes, bool]] | tuple[str, bytes, int, int, int, bool]
+        ):
+            """Synchronous tile read function using cached reader."""
+            try:
+                # Get cached reader (fast path - no file open/index parse)
+                reader, header, is_gzip = _get_cached_pmtiles_reader(pmtiles_path)
+
+                min_zoom = header.get("min_zoom", 0)
+
+                # Check if tile is below min zoom
+                if z < min_zoom:
+                    return (b"", False)  # Empty tile
+
+                # Try to get the tile directly
+                tile_data = reader.get(z, x, y)
+
+                if tile_data:
+                    # Check if tile is gzip compressed (fallback check)
+                    if not is_gzip:
+                        is_gzip = len(tile_data) >= 2 and tile_data[0:2] == b"\x1f\x8b"
+                    return (tile_data, is_gzip)
+
+                # Tile not found - find parent tile for variable-depth pyramids
+                parent_z, parent_x, parent_y = z, x, y
+                parent_tile = None
+
+                while parent_z >= min_zoom:
+                    parent_tile = reader.get(parent_z, parent_x, parent_y)
+                    if parent_tile is not None:
+                        break
+                    # Move to parent tile
+                    parent_z -= 1
+                    parent_x >>= 1
+                    parent_y >>= 1
+
+                if parent_tile is None:
+                    # No parent found - return empty tile
+                    return (b"", False)
+
+                # If parent is at same zoom, just return it
+                if parent_z == z:
+                    return (parent_tile, is_gzip)
+
+                # Check if target tile intersects the data bounds
+                # This avoids expensive overzoom for tiles outside the data extent
+                min_lon, min_lat, max_lon, max_lat = get_bounds_from_pmtiles_header(
+                    header
+                )
+
+                if not tile_intersects_bounds(
+                    z, x, y, min_lon, min_lat, max_lon, max_lat
+                ):
+                    # Target tile is outside data bounds - return empty without overzoom
+                    logger.debug(
+                        "Tile %d/%d/%d outside bounds [%.4f,%.4f,%.4f,%.4f] - skipping overzoom",
+                        z,
+                        x,
+                        y,
+                        min_lon,
+                        min_lat,
+                        max_lon,
+                        max_lat,
+                    )
+                    return (b"", False)
+
+                # Signal that overzoom is needed
+                return (
+                    "overzoom",
+                    parent_tile,
+                    parent_z,
+                    parent_x,
+                    parent_y,
+                    is_gzip,
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Error reading PMTiles %s at %d/%d/%d: %s",
+                    pmtiles_path,
+                    z,
+                    x,
+                    y,
+                    e,
+                )
+                return None
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_pmtiles_executor, _read_tile)
+
+        if result is None:
+            return None
+
+        # Handle overzoom case - now with full support!
+        if isinstance(result, tuple) and len(result) == 6 and result[0] == "overzoom":
+            _, parent_tile, parent_z, parent_x, parent_y, is_gzip = result
+
+            overzoom_start = time.monotonic()
+            # Run async overzoom (non-blocking)
+            overzoomed = await self._overzoom_tile(
+                parent_tile, parent_z, parent_x, parent_y, z, x, y, is_gzip
+            )
+            overzoom_ms = (time.monotonic() - overzoom_start) * 1000
+
+            if overzoomed:
+                logger.info(
+                    "Overzoom %d/%d/%d -> %d/%d/%d: %d bytes parent -> %d bytes (%.1fms)",
+                    parent_z,
+                    parent_x,
+                    parent_y,
+                    z,
+                    x,
+                    y,
+                    len(parent_tile),
+                    len(overzoomed),
+                    overzoom_ms,
+                )
+                # tippecanoe-overzoom outputs gzip-compressed tiles
+                return (overzoomed, True)
+
+            # Overzoom returned empty - this is normal when target tile has no features
+            logger.debug(
+                "Overzoom %d/%d/%d -> %d/%d/%d: no features (%.1fms)",
+                parent_z,
+                parent_x,
+                parent_y,
+                z,
+                x,
+                y,
+                overzoom_ms,
+            )
+            return (b"", False)
+
+        return result
+
     async def _get_tile_from_pmtiles(
         self, layer_info: LayerInfo, z: int, x: int, y: int
     ) -> Optional[tuple[bytes, bool]]:
@@ -216,7 +778,7 @@ class TileService:
             """
             try:
                 with open(pmtiles_path, "rb") as f:
-                    reader = PMTilesReader(MmapSource(f))
+                    reader = CachedPMTilesReader(MmapSource(f))
                     header = reader.header()
 
                     min_zoom = header.get("min_zoom", 0)
@@ -263,15 +825,27 @@ class TileService:
                     if parent_z == z:
                         return parent_tile, is_gzip
 
-                    logger.debug(
-                        "Variable-depth overzoom: %d/%d/%d -> parent %d/%d/%d",
-                        z,
-                        x,
-                        y,
-                        parent_z,
-                        parent_x,
-                        parent_y,
+                    # Check if target tile intersects the data bounds
+                    # This avoids expensive overzoom for tiles outside the data extent
+                    min_lon, min_lat, max_lon, max_lat = get_bounds_from_pmtiles_header(
+                        header
                     )
+
+                    if not tile_intersects_bounds(
+                        z, x, y, min_lon, min_lat, max_lon, max_lat
+                    ):
+                        # Target tile is outside data bounds - return empty without overzoom
+                        logger.debug(
+                            "Tile %d/%d/%d outside bounds [%.4f,%.4f,%.4f,%.4f] - skipping overzoom",
+                            z,
+                            x,
+                            y,
+                            min_lon,
+                            min_lat,
+                            max_lon,
+                            max_lat,
+                        )
+                        return b"", False
 
                     # Signal that overzoom is needed (will be done async outside executor)
                     return (
@@ -309,7 +883,6 @@ class TileService:
 
             return b"", False
 
-        # Direct tile result
         return result
 
     async def _overzoom_tile(
@@ -347,6 +920,7 @@ class TileService:
                 tempfile.NamedTemporaryFile(suffix=".mvt", delete=True) as in_file,
                 tempfile.NamedTemporaryFile(suffix=".mvt.gz", delete=True) as out_file,
             ):
+                # Write input file
                 in_file.write(input_data)
                 in_file.flush()
 
@@ -383,15 +957,30 @@ class TileService:
                     return None
 
                 if process.returncode != 0:
-                    logger.warning(
-                        "tippecanoe-overzoom failed: %s",
-                        stderr.decode() if stderr else "unknown error",
-                    )
+                    error_msg = stderr.decode().strip() if stderr else "unknown error"
+                    # Don't warn for expected "no features" case - this is normal
+                    if "no features" not in error_msg.lower():
+                        logger.debug(
+                            "tippecanoe-overzoom %d/%d/%d -> %d/%d/%d: %s",
+                            parent_z,
+                            parent_x,
+                            parent_y,
+                            target_z,
+                            target_x,
+                            target_y,
+                            error_msg or "empty output",
+                        )
                     return None
 
                 # Read the output tile
                 out_file.seek(0)
-                return out_file.read()
+                result = out_file.read()
+
+                # tippecanoe-overzoom may produce empty output for tiles with no features
+                if len(result) == 0:
+                    return None
+
+                return result
 
         except Exception as e:
             logger.warning("Overzoom error: %s", e)

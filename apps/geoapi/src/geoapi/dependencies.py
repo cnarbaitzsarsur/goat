@@ -1,6 +1,8 @@
 """FastAPI dependencies for GeoAPI."""
 
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, Path, Query
@@ -20,6 +22,9 @@ from pydantic import BaseModel
 from geoapi.ducklake import ducklake_manager
 
 logger = logging.getLogger(__name__)
+
+# Thread pool for sync DuckDB operations in dependencies
+_layer_info_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="layer_info")
 
 
 class LayerInfo(BaseModel):
@@ -84,10 +89,8 @@ def get_schema_for_layer(layer_id: str) -> str:
         )
 
 
-def get_layer_info(
-    collection_id: Annotated[str, Path(alias="collectionId")],
-) -> LayerInfo:
-    """Extract layer info from collection ID in URL path.
+def get_layer_info_sync(collection_id: str) -> LayerInfo:
+    """Synchronous version for use in thread pool.
 
     The collection ID is just the layer UUID (with or without hyphens).
     Schema is looked up from DuckLake catalog with caching.
@@ -99,6 +102,25 @@ def get_layer_info(
         layer_id=layer_id,
         schema_name=schema_name,
         table_name=_layer_id_to_table_name(layer_id),
+    )
+
+
+async def get_layer_info(
+    collection_id: Annotated[str, Path(alias="collectionId")],
+) -> LayerInfo:
+    """Extract layer info from collection ID in URL path.
+
+    The collection ID is just the layer UUID (with or without hyphens).
+    Schema is looked up from DuckLake catalog with caching.
+
+    Runs in a thread pool to avoid blocking the async event loop
+    when DuckDB query is needed (cache miss).
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _layer_info_executor,
+        get_layer_info_sync,
+        collection_id,
     )
 
 
