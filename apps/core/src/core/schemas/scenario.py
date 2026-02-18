@@ -26,7 +26,7 @@ class IScenarioFeatureCreate(BaseModel):
 
 class IScenarioFeatureUpdate(BaseModel):
     id: UUID
-    feature_id: UUID | None = None
+    feature_id: str | None = None
     edit_type: ScenarioFeatureEditType
     layer_project_id: int
     h3_3: int | None = None

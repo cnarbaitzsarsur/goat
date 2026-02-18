@@ -71,7 +71,7 @@ const ScenarioFeaturesTable = ({
   const dispatch = useAppDispatch();
 
   const handleZoomToFeature = (feature: ScenarioFeature) => {
-    if (!map) return;
+    if (!map || !feature.geometry) return;
     const boundingBox = bbox(feature);
     fitBounds(map, boundingBox as [number, number, number, number]);
   };
@@ -92,6 +92,33 @@ const ScenarioFeaturesTable = ({
     if (!projectLayer) return;
     const layerId = projectLayer.layer_id;
     if (!layerId) return;
+
+    const doDelete = async () => {
+      const properties = feature.properties;
+      try {
+        await deleteProjectScenarioFeature(
+          projectId,
+          projectLayerId,
+          scenarioId,
+          properties.id,
+          properties?.h3_3 as number
+        );
+        toast.success(t("feature_deleted_success"));
+      } catch (error) {
+        console.error(error);
+        toast.error(t("feature_delete_error"));
+      } finally {
+        dispatch(setPopupEditor(undefined));
+        mutateScenarioFeatures();
+      }
+    };
+
+    // Features without geometry: delete directly (no map popup needed)
+    if (!feature.geometry) {
+      await doDelete();
+      return;
+    }
+
     const layer = await getDataset(layerId);
     if (!layer) return;
     handleZoomToFeature(feature);
@@ -103,32 +130,14 @@ const ScenarioFeaturesTable = ({
         onClose: () => {
           dispatch(setPopupEditor(undefined));
         },
-        onConfirm: async () => {
-          const properties = feature.properties;
-          try {
-            await deleteProjectScenarioFeature(
-              projectId,
-              projectLayerId,
-              scenarioId,
-              properties.id,
-              properties?.h3_3 as number
-            );
-            toast.success(t("feature_deleted_success"));
-          } catch (error) {
-            console.error(error);
-            toast.error(t("feature_delete_error"));
-          } finally {
-            dispatch(setPopupEditor(undefined));
-            mutateScenarioFeatures();
-          }
-        },
+        onConfirm: doDelete,
       })
     );
   };
 
   const editTypeLabel = (editType: string) => {
     switch (editType) {
-      case scenarioEditTypeEnum.Enum.m:
+      case scenarioEditTypeEnum.Enum.n:
         return t("new");
       case scenarioEditTypeEnum.Enum.d:
         return t("deleted");
@@ -294,12 +303,16 @@ const ScenarioFeaturesEditor = ({ scenario, projectId }: { scenario: Scenario; p
         if (type === EditorModes.DELETE && popupEditorRef.current.feature && properties) {
           try {
             validateProperties(properties);
+            const feature = popupEditorRef.current.feature;
+            const featureId = properties.id;
+            const geomWkt = feature.geometry ? stringifyToWKT(feature.geometry) : undefined;
             await deleteProjectScenarioFeature(
               projectId,
               selectedScenarioLayer?.id,
               scenario.id,
-              properties.id,
-              properties.h3_3
+              featureId,
+              properties.h3_3,
+              geomWkt
             );
             toast.success(t("feature_deleted_success"));
           } catch (error) {

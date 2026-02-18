@@ -15,7 +15,6 @@ from geoapi.dependencies import (
     TileMatrixSetIdDep,
     normalize_layer_id,
 )
-from geoapi.metrics import tile_metrics
 from geoapi.models import (
     Link,
     StyleJSON,
@@ -71,9 +70,6 @@ async def get_tile(
             status_code=400, detail=f"Invalid collection ID: {collection_id}"
         )
 
-    # Start metrics tracking
-    metrics = tile_metrics.start_request(request_id, layer_id, z, x, y)
-
     # Try ultra-fast PMTiles path first (wrapped in try-except to ensure fallback)
     try:
         if tile_service.can_serve_from_pmtiles_by_layer_id(layer_id, cql_filter, bbox):
@@ -87,7 +83,6 @@ async def get_tile(
                 tile_data, is_gzip, source = result
                 elapsed_ms = (time.monotonic() - start_time) * 1000
                 if not tile_data:
-                    tile_metrics.end_request(metrics, tile_size=0, source=source)
                     return Response(
                         status_code=204,
                         headers={
@@ -95,9 +90,6 @@ async def get_tile(
                             "X-Response-Time": f"{elapsed_ms:.1f}ms",
                         },
                     )
-                tile_metrics.end_request(
-                    metrics, tile_size=len(tile_data), source=source
-                )
                 headers = {
                     "Cache-Control": "public, max-age=3600",
                     "X-Tile-Source": source,
@@ -173,7 +165,6 @@ async def get_tile(
         )
     except TimeoutError:
         # Query exceeded timeout - return 504 Gateway Timeout
-        tile_metrics.end_request(metrics, error="timeout")
         raise HTTPException(
             status_code=504,
             detail=f"Tile query timeout for z={z}, x={x}, y={y}. Try a higher zoom level or smaller area.",
@@ -181,7 +172,6 @@ async def get_tile(
 
     if not result:
         elapsed_ms = (time.monotonic() - start_time) * 1000
-        tile_metrics.end_request(metrics, tile_size=0, source="dynamic")
         return Response(
             status_code=204,
             headers={
@@ -192,7 +182,6 @@ async def get_tile(
 
     tile_data, is_gzip, source = result
     elapsed_ms = (time.monotonic() - start_time) * 1000
-    tile_metrics.end_request(metrics, tile_size=len(tile_data), source=source)
     headers = {
         "Cache-Control": "public, max-age=3600",
         "X-Tile-Source": source,

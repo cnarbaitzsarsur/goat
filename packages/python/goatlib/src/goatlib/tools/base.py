@@ -834,6 +834,8 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             attribute_mapping = (
                 layer_info.get("attribute_mapping", {}) if layer_info else {}
             )
+            if not isinstance(attribute_mapping, dict):
+                attribute_mapping = {}
 
             # Get scenario features from PostgreSQL
             scenario_features = _get_or_create_event_loop().run_until_complete(
@@ -913,7 +915,11 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         for feat in scenario_features:
             edit_type = feat.get("edit_type")
             if edit_type in ("m", "d"):  # modified or deleted
-                modified_deleted_ids.append(feat["id"])
+                # feature_id is stored as TEXT; convert to int for DuckLake's INTEGER id column
+                try:
+                    modified_deleted_ids.append(int(feat["id"]))
+                except (ValueError, TypeError):
+                    pass  # skip non-integer feature_ids (e.g. old UUID values)
             if edit_type in ("n", "m"):  # new or modified
                 new_modified_features.append(feat)
 
@@ -956,8 +962,8 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                 if col_name == "id":
                     row_values.append("?")
                     value_params.append(feat.get("id"))
-                elif col_name == "geometry":
-                    # Convert WKT to geometry
+                elif "GEOMETRY" in col_type.upper():
+                    # Convert WKT to geometry (column may be named "geometry" or "geom")
                     row_values.append("ST_GeomFromText(?)")
                     value_params.append(feat.get("geom"))
                 elif col_name in reverse_mapping:

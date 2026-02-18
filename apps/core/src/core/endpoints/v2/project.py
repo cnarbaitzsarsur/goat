@@ -790,7 +790,7 @@ async def delete_scenario_features(
         example="1",
     ),
     scenario: Scenario = Depends(get_scenario),
-    feature_id: UUID = Path(
+    feature_id: str = Path(
         ...,
         description="Feature ID to delete",
     ),
@@ -798,6 +798,10 @@ async def delete_scenario_features(
         None,
         description="H3 3 resolution",
         example=5,
+    ),
+    geom: str | None = Query(
+        None,
+        description="Feature geometry as WKT (used when origin table is unavailable)",
     ),
 ) -> None:
     layer_project = await crud_layer_project.get(
@@ -817,6 +821,7 @@ async def delete_scenario_features(
         scenario=scenario,
         feature_id=feature_id,
         h3_3=h3_3,
+        geom=geom,
     )
 
     return None

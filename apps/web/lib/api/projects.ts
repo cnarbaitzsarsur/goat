@@ -423,13 +423,21 @@ export const deleteProjectScenarioFeature = async (
   project_layer_id: number,
   scenarioId: string,
   featureId: string | number,
-  h33?: number
+  h33?: number,
+  geom?: string
 ) => {
   let url = `${PROJECTS_API_BASE_URL}/${projectId}/layer/${project_layer_id}/scenario/${scenarioId}/features/${featureId}`;
 
-  // H33 is mandatory for user data. It can be undefined for new features only.
-  if (h33 !== undefined) {
-    url += `?h3_3=${h33}`;
+  const params = new URLSearchParams();
+  if (h33 != null) {
+    params.set("h3_3", String(h33));
+  }
+  if (geom) {
+    params.set("geom", geom);
+  }
+  const qs = params.toString();
+  if (qs) {
+    url += `?${qs}`;
   }
 
   const response = await apiRequestAuth(url, {

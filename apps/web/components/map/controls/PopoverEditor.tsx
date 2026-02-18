@@ -58,7 +58,7 @@ const MapPopoverEditor: React.FC<MapPopoverEditorProps> = ({
 
   const _lngLat = useMemo(() => {
     let _lngLat = lngLat || [0, 0];
-    if (!lngLat && feature) {
+    if (!lngLat && feature?.geometry) {
       const coordinates = feature.geometry["coordinates"];
       if (layer?.feature_layer_geometry_type === "point") {
         _lngLat = coordinates;

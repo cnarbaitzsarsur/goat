@@ -1038,8 +1038,12 @@ class CatchmentAreaTool(AnalysisTool):
         if area_type == "polygon":
             payload["polygon_difference"] = params.polygon_difference
 
-        if params.scenario_id:
+        # Note: scenario_id is only sent to routing when a street_network
+        # is also provided (routing requires both). Feature-only scenarios
+        # don't affect the routing graph.
+        if params.scenario_id and hasattr(params, "street_network") and params.street_network:
             payload["scenario_id"] = params.scenario_id
+            payload["street_network"] = params.street_network
 
         return await self._post_with_retry(url, payload, authorization)
 
@@ -1093,8 +1097,12 @@ class CatchmentAreaTool(AnalysisTool):
         if area_type == "polygon":
             payload["polygon_difference"] = params.polygon_difference
 
-        if params.scenario_id:
+        # Note: scenario_id is only sent to routing when a street_network
+        # is also provided (routing requires both). Feature-only scenarios
+        # don't affect the routing graph.
+        if params.scenario_id and hasattr(params, "street_network") and params.street_network:
             payload["scenario_id"] = params.scenario_id
+            payload["street_network"] = params.street_network
 
         return await self._post_with_retry(url, payload, authorization)
 

@@ -489,74 +489,106 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         layer_id: str,
         user_id: str,
         cql_filter: dict[str, Any] | None = None,
+        scenario_id: str | None = None,
+        project_id: str | None = None,
     ) -> tuple[list[float], list[float]]:
         """Extract lat/lon coordinates from a layer.
+
+        When scenario_id is provided, uses export_layer_to_parquet which handles
+        scenario feature merging (excluding deleted, including new/modified features).
 
         Args:
             layer_id: Layer UUID string
             user_id: User UUID string (fallback if layer info unavailable)
             cql_filter: Optional CQL2-JSON filter to apply to the layer
+            scenario_id: Optional scenario UUID for applying scenario edits
+            project_id: Optional project UUID (required with scenario_id)
 
         Returns:
             Tuple of (latitudes, longitudes) lists
         """
-        import json
-
-        from goatlib.storage.query_builder import build_cql_filter
-
-        # Look up the layer's actual owner to correctly access shared/catalog layers
-        layer_owner_id = self.get_layer_owner_id_sync(layer_id)
-        if layer_owner_id is None:
-            layer_owner_id = user_id  # Fallback to passed user_id
-            logger.warning(
-                f"Could not find owner for layer {layer_id}, using current user {user_id}"
+        if scenario_id and project_id:
+            # Use export_layer_to_parquet which handles scenario merging
+            temp_parquet = self.export_layer_to_parquet(
+                layer_id=layer_id,
+                user_id=user_id,
+                cql_filter=cql_filter,
+                scenario_id=scenario_id,
+                project_id=project_id,
             )
-        elif layer_owner_id != user_id:
-            logger.info(
-                f"Layer {layer_id} owned by {layer_owner_id}, accessed by {user_id}"
+            # Detect geometry column name from the parquet
+            parquet_info = self._get_table_info(self.duckdb_con, f"'{temp_parquet}'")
+            geom_col = parquet_info.get("geometry_column", "geometry")
+
+            # Read coordinates from the merged parquet
+            result = self.duckdb_con.execute(f"""
+                SELECT
+                    ST_Y(ST_Centroid("{geom_col}")) as lat,
+                    ST_X(ST_Centroid("{geom_col}")) as lon
+                FROM '{temp_parquet}'
+                WHERE "{geom_col}" IS NOT NULL
+            """).fetchall()
+
+            import os
+            os.unlink(temp_parquet)
+        else:
+            import json
+
+            from goatlib.storage.query_builder import build_cql_filter
+
+            # Look up the layer's actual owner to correctly access shared/catalog layers
+            layer_owner_id = self.get_layer_owner_id_sync(layer_id)
+            if layer_owner_id is None:
+                layer_owner_id = user_id  # Fallback to passed user_id
+                logger.warning(
+                    f"Could not find owner for layer {layer_id}, using current user {user_id}"
+                )
+            elif layer_owner_id != user_id:
+                logger.info(
+                    f"Layer {layer_id} owned by {layer_owner_id}, accessed by {user_id}"
+                )
+
+            table_name = self.get_layer_table_path(layer_owner_id, layer_id)
+
+            # Detect geometry column name from table schema
+            cols_result = self._execute_with_retry(
+                "describe table",
+                f"DESCRIBE {table_name}",
             )
+            geom_col = "geometry"  # default
+            column_names: list[str] = []
+            for col_name, col_type, *_ in cols_result.fetchall():
+                column_names.append(col_name)
+                if "GEOMETRY" in col_type.upper():
+                    geom_col = col_name
 
-        table_name = self.get_layer_table_path(layer_owner_id, layer_id)
+            # Build WHERE clause from CQL filter
+            where_clause = f"WHERE {geom_col} IS NOT NULL"
+            params: list[Any] = []
 
-        # Detect geometry column name from table schema
-        cols_result = self._execute_with_retry(
-            "describe table",
-            f"DESCRIBE {table_name}",
-        )
-        geom_col = "geometry"  # default
-        column_names: list[str] = []
-        for col_name, col_type, *_ in cols_result.fetchall():
-            column_names.append(col_name)
-            if "GEOMETRY" in col_type.upper():
-                geom_col = col_name
+            if cql_filter:
+                filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
+                cql_filters = build_cql_filter(filter_dict, column_names, geom_col)
+                if cql_filters.clauses:
+                    where_clause += " AND " + " AND ".join(cql_filters.clauses)
+                    params = cql_filters.params
+                    logger.info(f"Applied CQL filter to layer {layer_id}")
 
-        # Build WHERE clause from CQL filter
-        where_clause = f"WHERE {geom_col} IS NOT NULL"
-        params: list[Any] = []
-
-        if cql_filter:
-            filter_dict = {"filter": json.dumps(cql_filter), "lang": "cql2-json"}
-            cql_filters = build_cql_filter(filter_dict, column_names, geom_col)
-            if cql_filters.clauses:
-                where_clause += " AND " + " AND ".join(cql_filters.clauses)
-                params = cql_filters.params
-                logger.info(f"Applied CQL filter to layer {layer_id}")
-
-        # Query centroids of all geometries
-        query = f"""
-            SELECT
-                ST_Y(ST_Centroid({geom_col})) as lat,
-                ST_X(ST_Centroid({geom_col})) as lon
-            FROM {table_name}
-            {where_clause}
-        """
-        result = self.duckdb_con.execute(query, params).fetchall()
+            # Query centroids of all geometries
+            query = f"""
+                SELECT
+                    ST_Y(ST_Centroid({geom_col})) as lat,
+                    ST_X(ST_Centroid({geom_col})) as lon
+                FROM {table_name}
+                {where_clause}
+            """
+            result = self.duckdb_con.execute(query, params).fetchall()
 
         if not result:
             raise ValueError(f"No valid geometries found in layer {layer_id}")
 
-        latitudes = [row[0] for row in result]
-        longitudes = [row[1] for row in result]
+        latitudes = [row[0] for row in result if row[0] is not None and row[1] is not None]
+        longitudes = [row[1] for row in result if row[0] is not None and row[1] is not None]
 
         logger.info(
             "Extracted %d starting points from layer %s",
@@ -570,12 +602,16 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         self: Self,
         starting_points: StartingPoints,
         user_id: str,
+        scenario_id: str | None = None,
+        project_id: str | None = None,
     ) -> tuple[list[float], list[float]]:
         """Get latitude/longitude coordinates from starting points.
 
         Args:
             starting_points: Either direct coordinates or layer reference
             user_id: User UUID string (needed for layer lookup)
+            scenario_id: Optional scenario UUID for applying scenario edits
+            project_id: Optional project UUID (required with scenario_id)
 
         Returns:
             Tuple of (latitudes, longitudes) lists
@@ -591,6 +627,8 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
                 starting_points.layer_id,
                 user_id,
                 cql_filter=starting_points.layer_filter,
+                scenario_id=scenario_id,
+                project_id=project_id,
             )
         else:
             raise ValueError(f"Invalid starting_points type: {type(starting_points)}")
@@ -607,6 +645,8 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         latitudes, longitudes = self._get_starting_coordinates(
             params.starting_points,
             params.user_id,
+            scenario_id=params.scenario_id,
+            project_id=params.project_id,
         )
 
         # Validate starting point limits based on routing mode

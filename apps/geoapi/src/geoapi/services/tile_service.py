@@ -30,6 +30,7 @@ from io import BufferedReader
 from pathlib import Path
 from typing import Any, Optional
 
+from cachetools import LRUCache
 from goatlib.storage import build_filters
 from pmtiles.reader import MmapSource
 from pmtiles.tile import (
@@ -59,6 +60,11 @@ _dynamic_tile_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="d
 
 # Maximum leaf directory entries to cache per PMTiles file (~64KB per file)
 _LEAF_CACHE_MAX_SIZE = 1000
+
+# Maximum entries for path and exists caches (for 10,000+ layers scalability)
+# These use LRU eviction to bound memory usage
+_PATH_CACHE_MAX_SIZE = 2000  # ~400KB max
+_EXISTS_CACHE_MAX_SIZE = 5000  # ~250KB max
 
 
 class CachedPMTilesReader:
@@ -129,7 +135,8 @@ _pmtiles_reader_cache: dict[
     str, tuple[CachedPMTilesReader, Any, BufferedReader, float]
 ] = {}
 _pmtiles_reader_cache_lock = threading.Lock()  # Protects cache dict access only
-_pmtiles_file_locks: dict[str, threading.Lock] = {}  # Per-file locks for creation
+# Per-file locks for creation - bounded with LRU eviction
+_pmtiles_file_locks: LRUCache[str, threading.Lock] = LRUCache(maxsize=100)
 _PMTILES_READER_CACHE_MAX_SIZE = 30  # Max cached readers (limits open file handles)
 
 
@@ -186,8 +193,7 @@ def _get_cached_pmtiles_reader(
                 except Exception:
                     pass
                 del _pmtiles_reader_cache[oldest_key]
-                # Clean up file lock too
-                _pmtiles_file_locks.pop(oldest_key, None)
+                # Note: file locks use their own LRU eviction, no need to sync
 
             _pmtiles_reader_cache[path_str] = (reader, header, fh, current_mtime)
 
@@ -305,10 +311,14 @@ class TileService:
         self.buffer = settings.DEFAULT_TILE_BUFFER
         self.ducklake_data_dir = Path(settings.DUCKLAKE_DATA_DIR)
         self.tiles_data_dir = Path(settings.TILES_DATA_DIR)
-        # Track which PMTiles files exist (simple path cache)
-        self._pmtiles_exists_cache: dict[str, bool] = {}
-        # Cache PMTiles paths by layer_id (avoids glob on every request)
-        self._pmtiles_path_cache: dict[str, Path | None] = {}
+        # Track which PMTiles files exist (LRU cache for 10k+ layers)
+        self._pmtiles_exists_cache: LRUCache[str, bool] = LRUCache(
+            maxsize=_EXISTS_CACHE_MAX_SIZE
+        )
+        # Cache PMTiles paths by layer_id (LRU cache for 10k+ layers)
+        self._pmtiles_path_cache: LRUCache[str, Path | None] = LRUCache(
+            maxsize=_PATH_CACHE_MAX_SIZE
+        )
 
     def _find_pmtiles_by_layer_id(self, layer_id: str) -> Path | None:
         """Find PMTiles file for a layer using glob search (no schema lookup needed).
@@ -998,7 +1008,7 @@ class TileService:
         limit: Optional[int] = None,
         columns: Optional[list[dict]] = None,
         geometry_column: str = "geometry",
-    ) -> Optional[tuple[bytes, bool]]:
+    ) -> Optional[tuple[bytes, bool, str]]:
         """Generate MVT tile for a layer.
 
         Uses PMTiles for unfiltered requests, GeoParquet for filtered requests.

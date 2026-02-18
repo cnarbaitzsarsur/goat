@@ -26,16 +26,19 @@ class CRUDScenario(CRUDBase[Scenario, IScenarioCreate, IScenarioUpdate]):
         self,
         async_session: AsyncSession,
         layer_project: LayerProjectLink,
-        feature_id: UUID,
-        h3_3: int,
+        feature_id: str | UUID,
+        h3_3: int | None = None,
     ) -> RowMapping | None:
         """Get all features from the origin table."""
 
         user_table = get_user_table(layer_project.layer.model_dump())
-        origin_feature_result = await async_session.execute(
-            text(f"""SELECT * FROM {user_table} WHERE id = :id AND h3_3 = :h3_3"""),
-            {"id": feature_id, "h3_3": h3_3},
-        )
+        if h3_3 is not None:
+            query = text(f"""SELECT * FROM {user_table} WHERE id = :id AND h3_3 = :h3_3""")
+            params = {"id": feature_id, "h3_3": h3_3}
+        else:
+            query = text(f"""SELECT * FROM {user_table} WHERE id = :id""")
+            params = {"id": feature_id}
+        origin_feature_result = await async_session.execute(query, params)
         origin_feature_obj = origin_feature_result.mappings().fetchone()
         return origin_feature_obj
 
@@ -84,6 +87,7 @@ class CRUDScenario(CRUDBase[Scenario, IScenarioCreate, IScenarioUpdate]):
                 "geom": feature.geom,
                 "feature_id": feature.feature_id,
                 "layer_project_id": feature.layer_project_id,
+                "h3_3": feature.h3_3,
                 "edit_type": feature.edit_type,
                 "updated_at": feature.updated_at,
                 "created_at": feature.created_at,
@@ -161,7 +165,7 @@ class CRUDScenario(CRUDBase[Scenario, IScenarioCreate, IScenarioUpdate]):
             scenario_feature_dict = {
                 **origin_feature_obj,
                 "id": None,
-                "feature_id": feature.id,
+                "feature_id": str(feature.id),
                 "layer_project_id": layer_project.id,
                 "edit_type": ScenarioFeatureEditType.modified,
             }
@@ -185,47 +189,66 @@ class CRUDScenario(CRUDBase[Scenario, IScenarioCreate, IScenarioUpdate]):
         user_id: UUID,
         layer_project: LayerProjectLink,
         scenario: Scenario,
-        feature_id: UUID,
+        feature_id: str,
         h3_3: int | None = None,
+        geom: str | None = None,
     ) -> ScenarioFeature:
         """Delete a feature from a scenario."""
 
         # Check if feature exists in the scenario_feature table
-        feature_db = await CRUDBase(ScenarioFeature).get(
-            db=async_session, id=feature_id
-        )
-        if feature_db:
-            return await CRUDBase(ScenarioFeature).remove(
-                db=async_session, id=feature_db.id
+        # Only attempt UUID lookup if the feature_id is a valid UUID
+        try:
+            feature_uuid = UUID(feature_id)
+            feature_db = await CRUDBase(ScenarioFeature).get(
+                db=async_session, id=feature_uuid
             )
+            if feature_db:
+                return await CRUDBase(ScenarioFeature).remove(
+                    db=async_session, id=feature_db.id
+                )
+        except (ValueError, AttributeError):
+            pass
 
         # New deleted feature. Create a new feature in the scenario_feature table
-        if h3_3 is None:
-            raise ValueError(
-                "h3_3 is required to delete a scenario feature which is derived from user table"
-            )
+        # Store feature_id as string (works for both integer IDs and UUIDs)
+        feature_id_str = str(feature_id) if feature_id is not None else None
 
-        origin_feature_obj = await self._get_origin_features(
-            async_session, layer_project, feature_id, h3_3
-        )
+        # Try to get origin feature data from user_data table (legacy PostgreSQL)
+        origin_feature_obj = None
+        try:
+            origin_feature_obj = await self._get_origin_features(
+                async_session, layer_project, feature_id, h3_3
+            )
+        except Exception:
+            # user_data table may not exist if data is in DuckLake
+            pass
+
         if origin_feature_obj:
             scenario_feature_dict = {
                 **origin_feature_obj,
                 "id": None,
-                "feature_id": feature_id,
+                "feature_id": feature_id_str,
                 "layer_project_id": layer_project.id,
                 "edit_type": ScenarioFeatureEditType.deleted,
             }
-            scenario_feature_obj = ScenarioFeature(**scenario_feature_dict)
-            scenario_scenario_feature_link = ScenarioScenarioFeatureLink(
-                scenario=scenario, scenario_feature=scenario_feature_obj
-            )
-            async_session.add(scenario_scenario_feature_link)
-            await async_session.commit()
-            return scenario_feature_obj
+        else:
+            # Data is in DuckLake — create delete record with geometry from frontend
+            scenario_feature_dict = {
+                "id": None,
+                "feature_id": feature_id_str,
+                "layer_project_id": layer_project.id,
+                "edit_type": ScenarioFeatureEditType.deleted,
+                "h3_3": h3_3,
+                "geom": geom,
+            }
 
-        # Throw error if feature does not exist
-        raise ValueError("Feature does not exist")
+        scenario_feature_obj = ScenarioFeature(**scenario_feature_dict)
+        scenario_scenario_feature_link = ScenarioScenarioFeatureLink(
+            scenario=scenario, scenario_feature=scenario_feature_obj
+        )
+        async_session.add(scenario_scenario_feature_link)
+        await async_session.commit()
+        return scenario_feature_obj
 
 
 scenario = CRUDScenario(Scenario)

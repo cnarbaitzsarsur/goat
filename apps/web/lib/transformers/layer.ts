@@ -325,16 +325,16 @@ export function scenarioLayerStyleSpec(data: ProjectLayer | Layer) {
   let style;
   if (geometryType === "point") {
     if (data.properties["custom_marker"]) {
+      const markerSize = (data.properties as FeatureLayerPointProperties).marker_size ?? 100;
       style = {
         type: "symbol",
         layout: {
           "icon-image": getMapboxStyleMarker(data),
-          "icon-allow-overlap": data.properties["marker_allow_overlap"] || false,
-          "icon-size": 1,
+          "icon-allow-overlap": true,
+          "icon-size": markerSize / 600,
         },
         paint: {
           "icon-opacity": 1,
-          "icon-color": "white",
         },
       };
     } else {
