@@ -38,6 +38,13 @@ export const formatNumberTypes = z.enum([
 // How chart widgets respond to cross-filter selections
 export const selectionResponseTypes = z.enum(["filter", "highlight"]);
 export type SelectionResponseType = z.infer<typeof selectionResponseTypes>;
+export const valueColorScaleTypes = z.enum([
+  "quantile",
+  "equal_interval",
+  "standard_deviation",
+  "heads_and_tails",
+]);
+export const categoriesStyleSourceTypes = z.enum(["statistics", "group_by"]);
 
 const chartConfigSetupBaseSchema = z.object({
   title: z.string().optional().default("Chart"),
@@ -203,6 +210,14 @@ export const categoriesChartConfigSchema = chartsConfigBaseSchema.extend({
     .extend({
       format: formatNumberTypes.optional().default("none"),
       sorting: sortTypes.optional().default("asc"),
+      // Toggle between attribute-based styling and simple single-color styling
+      attribute_based_styling: z.boolean().optional().default(true),
+      // Source field used for attribute-based styling
+      style_attribute_source: categoriesStyleSourceTypes.optional().default("statistics"),
+      // Value-based classification method (applied to statistical result values)
+      value_color_scale: valueColorScaleTypes.optional().default("quantile"),
+      // Optional single base color for all categories
+      color: z.string().optional(),
       // Color range for generating bar colors (like pie chart)
       color_range: colorRange.optional().default(DEFAULT_COLOR_RANGE),
       // Custom color mapping: array of [category_value, hex_color] tuples

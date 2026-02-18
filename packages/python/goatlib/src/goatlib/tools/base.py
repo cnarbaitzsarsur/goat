@@ -701,9 +701,6 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             if result.breaks:
                 # Remove duplicates and sort
                 unique_breaks = sorted(set(result.breaks))
-                # Remove min from breaks if present (keep max as last break)
-                if result.min is not None and result.min in unique_breaks:
-                    unique_breaks.remove(result.min)
 
                 return {
                     "breaks": unique_breaks,

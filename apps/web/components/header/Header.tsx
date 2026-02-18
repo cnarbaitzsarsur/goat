@@ -15,7 +15,9 @@ import { useDateFnsLocale } from "@/i18n/utils";
 
 import { useOrganization } from "@/lib/api/users";
 import { CONTACT_US_URL, DOCS_URL, DOCS_VERSION, WEBSITE_URL } from "@/lib/constants";
+import { setSelectedLayers } from "@/lib/store/layer/slice";
 import { setMapMode } from "@/lib/store/map/slice";
+import { setActiveRightPanel } from "@/lib/store/map/slice";
 import type { Project } from "@/lib/validations/project";
 
 import { useAuthZ } from "@/hooks/auth/AuthZ";
@@ -286,6 +288,8 @@ export default function Header(props: HeaderProps) {
                 ]}
                 activeOption={mapMode}
                 onToggle={(value: "data" | "builder" | "reports") => {
+                  dispatch(setSelectedLayers([]));
+                  dispatch(setActiveRightPanel(undefined));
                   dispatch(setMapMode(value));
                 }}
               />

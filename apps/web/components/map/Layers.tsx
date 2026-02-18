@@ -4,6 +4,7 @@ import type { LayerProps, MapGeoJSONFeature } from "react-map-gl/maplibre";
 import { Layer as MapLayer, Source } from "react-map-gl/maplibre";
 
 import { GEOAPI_BASE_URL, SYSTEM_LAYERS_IDS } from "@/lib/constants";
+import { buildClientFilterPlan } from "@/lib/transformers/filter";
 import { excludes as excludeOp } from "@/lib/transformers/filter";
 import {
   getHightlightStyleSpec,
@@ -96,13 +97,39 @@ const Layers = (props: LayersProps) => {
   };
 
   const getFeatureTileUrl = (layer: ProjectLayer | Layer) => {
-    let query = "";
     const extendedQuery = getLayerQueryFilter(layer);
+    let query = "";
+
     if (extendedQuery && Object.keys(extendedQuery).length > 0) {
-      query = `?filter=${encodeURIComponent(JSON.stringify(extendedQuery))}`;
+      const clientPlan = buildClientFilterPlan(extendedQuery);
+      if (!clientPlan.canUseClient) {
+        query = `?filter=${encodeURIComponent(JSON.stringify(extendedQuery))}`;
+      }
     }
+
     const layerId = layer["layer_id"] || layer["id"];
     return `${GEOAPI_BASE_URL}/collections/${layerId}/tiles/WebMercatorQuad/{z}/{x}/{y}${query}`;
+  };
+
+  const getLayerClientFilter = (layer: ProjectLayer | Layer): unknown[] | undefined => {
+    const extendedQuery = getLayerQueryFilter(layer);
+    if (!extendedQuery || Object.keys(extendedQuery).length === 0) {
+      return undefined;
+    }
+
+    const clientPlan = buildClientFilterPlan(extendedQuery);
+    if (!clientPlan.canUseClient) {
+      return undefined;
+    }
+
+    return clientPlan.maplibreFilter;
+  };
+
+  const mergeLayerFilters = (existingFilter: unknown, clientFilter: unknown) => {
+    if (existingFilter && clientFilter) {
+      return ["all", existingFilter, clientFilter];
+    }
+    return clientFilter || existingFilter;
   };
   const { useDataLayers, systemLayers } = useMemo(() => {
     const dataLayers = [] as ProjectLayer[] | Layer[];
@@ -125,6 +152,7 @@ const Layers = (props: LayersProps) => {
         ? useDataLayers.map((layer: ProjectLayer | Layer, index: number) =>
             (() => {
               if (layer.type === "feature") {
+                const clientFilter = getLayerClientFilter(layer);
                 return (
                   <Source key={layer.id} type="vector" tiles={[getFeatureTileUrl(layer)]} maxzoom={14}>
                     {!layer.properties?.["custom_marker"] && (
@@ -138,6 +166,10 @@ const Layers = (props: LayersProps) => {
                           index === 0 || !useDataLayers ? undefined : useDataLayers[index - 1].id.toString()
                         }
                         source-layer="default"
+                        filter={mergeLayerFilters(
+                          (transformToMapboxLayerStyleSpec(layer) as LayerProps).filter,
+                          clientFilter
+                        ) as LayerProps["filter"]}
                       />
                     )}
                     {layer.feature_layer_geometry_type === "polygon" && (
@@ -160,6 +192,22 @@ const Layers = (props: LayersProps) => {
                               (layer.properties as FeatureLayerProperties)?.stroked,
                           },
                         }) as LayerProps)}
+                        filter={mergeLayerFilters(
+                          (
+                            transformToMapboxLayerStyleSpec({
+                              ...layer,
+                              feature_layer_geometry_type: "line",
+                              properties: {
+                                ...layer.properties,
+                                opacity: 1,
+                                visibility:
+                                  layer.properties?.visibility &&
+                                  (layer.properties as FeatureLayerProperties)?.stroked,
+                              },
+                            }) as LayerProps
+                          ).filter,
+                          clientFilter
+                        ) as LayerProps["filter"]}
                         source-layer="default"
                       />
                     )}
@@ -181,6 +229,15 @@ const Layers = (props: LayersProps) => {
                           (layer.properties as FeatureLayerProperties)?.text_label,
                           layer
                         ) as LayerProps)}
+                        filter={mergeLayerFilters(
+                          (
+                            getSymbolStyleSpec(
+                              (layer.properties as FeatureLayerProperties)?.text_label,
+                              layer
+                            ) as LayerProps
+                          ).filter,
+                          clientFilter
+                        ) as LayerProps["filter"]}
                         beforeId={
                           index === 0 || !useDataLayers ? undefined : useDataLayers[index - 1].id.toString()
                         }
@@ -251,6 +308,9 @@ const Layers = (props: LayersProps) => {
       {systemLayers?.length
         ? systemLayers.map((layer: ProjectLayer | Layer) =>
             props.selectedScenarioLayer?.id === layer.id ? (
+              (() => {
+                const clientFilter = getLayerClientFilter(layer);
+                return (
               <Source
                 key={layer.id}
                 type="vector"
@@ -264,8 +324,14 @@ const Layers = (props: LayersProps) => {
                   source-layer="default"
                   minzoom={14}
                   maxzoom={22}
+                  filter={mergeLayerFilters(
+                    (transformToMapboxLayerStyleSpec(layer) as LayerProps).filter,
+                    clientFilter
+                  ) as LayerProps["filter"]}
                 />
               </Source>
+                );
+              })()
             ) : null
           )
         : null}

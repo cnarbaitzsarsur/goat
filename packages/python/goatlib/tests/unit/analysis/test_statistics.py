@@ -208,8 +208,10 @@ class TestClassBreaks:
         assert result.min == 10.0
         assert result.max == 100.0
 
-        # Equal interval breaks should be evenly spaced
-        expected_breaks = [28.0, 46.0, 64.0, 82.0, 100.0]
+        # Equal interval breaks: 5 internal breaks for 6 classes
+        # interval = (100 - 10) / (5 + 1) = 15
+        # breaks should NOT include min (10) or max (100)
+        expected_breaks = [25.0, 40.0, 55.0, 70.0, 85.0]
         for actual, expected in zip(result.breaks, expected_breaks):
             assert abs(actual - expected) < 0.1
 

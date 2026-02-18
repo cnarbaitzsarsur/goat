@@ -229,10 +229,17 @@ const DataProjectLayout = ({ project, onProjectUpdate }: DataProjectLayoutProps)
 
   // Keep Panel state consistent
   useEffect(() => {
-    if (activeRight === MapSidebarItemID.PROPERTIES && selectedLayerIds.length === 0) {
+    const layerSettingsIds = [MapSidebarItemID.PROPERTIES, MapSidebarItemID.FILTER, MapSidebarItemID.STYLE];
+    const hasSelectedLayers = selectedLayerIds.length > 0;
+    const hasValidSelectedLayer = selectedLayerIds.some((selectedId) =>
+      projectLayers.some((layer) => layer.id === selectedId)
+    );
+
+    if (layerSettingsIds.includes(activeRight as MapSidebarItemID) && (!hasSelectedLayers || !hasValidSelectedLayer)) {
+      dispatch(setSelectedLayers([]));
       dispatch(setActiveRightPanel(undefined));
     }
-  }, [activeRight, selectedLayerIds, dispatch]);
+  }, [activeRight, selectedLayerIds, projectLayers, dispatch]);
 
   return (
     <>

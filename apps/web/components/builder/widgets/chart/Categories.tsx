@@ -4,7 +4,6 @@ import chroma from "chroma-js";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { useLayerUniqueValues } from "@/lib/api/layers";
 import { useProjectLayerAggregationStats } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
 import { normalizeValue } from "@/lib/utils/normalize-value";
@@ -21,6 +20,76 @@ import { WidgetStatusContainer } from "@/components/builder/widgets/common/Widge
 const FALLBACK_COLORS = ["#5A1846", "#900C3F", "#C70039", "#E3611C", "#F1920E", "#FFC300"];
 const DEFAULT_SELECTED_COLOR = "#f5b704";
 const OPACITY_MODIFIER = "33";
+
+const getQuantileThresholds = (values: number[], bins: number): number[] => {
+  if (values.length <= 1 || bins <= 1) return [];
+  const sorted = [...values].sort((a, b) => a - b);
+  const thresholds: number[] = [];
+
+  for (let i = 1; i < bins; i += 1) {
+    const position = (i * (sorted.length - 1)) / bins;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    const weight = position - lower;
+    const value = sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    thresholds.push(value);
+  }
+
+  return thresholds;
+};
+
+const getEqualIntervalThresholds = (values: number[], bins: number): number[] => {
+  if (values.length <= 1 || bins <= 1) return [];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (min === max) return [];
+
+  const step = (max - min) / bins;
+  return Array.from({ length: bins - 1 }, (_, index) => min + step * (index + 1));
+};
+
+const getStandardDeviationThresholds = (values: number[], bins: number): number[] => {
+  if (values.length <= 1 || bins <= 1) return [];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (min === max) return [];
+
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  const stdDev = Math.sqrt(variance);
+
+  if (stdDev === 0) {
+    return getEqualIntervalThresholds(values, bins);
+  }
+
+  const start = mean - ((bins - 1) / 2) * stdDev;
+  const thresholds = Array.from({ length: bins - 1 }, (_, index) => start + stdDev * (index + 1));
+  return thresholds.filter((value) => value > min && value < max);
+};
+
+const getHeadsAndTailsThresholds = (values: number[], bins: number): number[] => {
+  if (values.length <= 1 || bins <= 1) return [];
+  const thresholds: number[] = [];
+  let head = [...values];
+
+  for (let i = 0; i < bins - 1; i += 1) {
+    if (head.length <= 1) break;
+    const mean = head.reduce((sum, value) => sum + value, 0) / head.length;
+    thresholds.push(mean);
+    head = head.filter((value) => value > mean);
+  }
+
+  return [...new Set(thresholds)].sort((a, b) => a - b);
+};
+
+const getClassIndex = (value: number, thresholds: number[]): number => {
+  for (let index = 0; index < thresholds.length; index += 1) {
+    if (value <= thresholds[index]) {
+      return index;
+    }
+  }
+  return thresholds.length;
+};
 
 export const CategoriesChartWidget = ({ config: rawConfig }: { config: CategoriesChartSchema }) => {
   const { t, i18n } = useTranslation("common");
@@ -42,38 +111,6 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
     layerId,
     mainQueryParams as AggregationStatsQueryParams
   );
-
-  // Context label: fetch unique values for the configured field
-  const contextLabelConfig = config?.options?.context_label;
-  const contextLabelQueryParams = useMemo(() => {
-    if (!contextLabelConfig?.field) return undefined;
-    return {
-      size: 1, // Only fetch 1 item - we use 'total' to check if there's exactly 1 unique value
-      page: 1,
-      order: "descendent" as const,
-      ...(queryParams?.query ? { query: queryParams.query } : {}),
-    };
-  }, [contextLabelConfig?.field, queryParams?.query]);
-
-  const { data: contextLabelData } = useLayerUniqueValues(
-    contextLabelConfig?.field ? layerId || "" : "",
-    contextLabelConfig?.field || "",
-    contextLabelQueryParams
-  );
-
-  // Determine the context label value
-  const contextLabelValue = useMemo(() => {
-    if (!contextLabelConfig) return null;
-    if (!contextLabelData) return null;
-
-    // Use total count to determine if there's exactly 1 unique value
-    if (contextLabelData.total === 1 && contextLabelData.items?.length === 1) {
-      // Single unique value - show it
-      return String(contextLabelData.items[0].value);
-    }
-    // Multiple values - show default (or null if not set)
-    return contextLabelConfig.default_value || null;
-  }, [contextLabelConfig, contextLabelData]);
 
   // Fetch selected/filtered data (only in highlight mode)
   const { aggregationStats: selectedStats, isLoading: isSelectedLoading } = useProjectLayerAggregationStats(
@@ -134,7 +171,7 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
   const [isHovering, setIsHovering] = useState(false);
 
-  // Build color lookup from color_map if available (normalized for format differences)
+  // Build color lookup from color_map for group-by/ordinal styling
   const colorMapLookup = useMemo(() => {
     const lookup = new Map<string, string>();
     config?.options?.color_map?.forEach(([value, color]) => {
@@ -147,26 +184,79 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
   const baseColors = useMemo(() => {
     if (displayData.length === 0) return [];
 
-    // If we have a color_map, use it for colors
-    if (colorMapLookup.size > 0) {
-      return displayData.map((item, index) => {
-        const mappedColor = colorMapLookup.get(normalizeValue(item.grouped_value));
-        if (mappedColor) return mappedColor;
-        // Fallback for items not in color_map
-        const palette = config?.options?.color_range?.colors || FALLBACK_COLORS;
-        const colors = chroma.scale(palette).mode("lch").colors(displayData.length);
-        return colors[index];
-      });
+    const isAttributeBasedStyling = config?.options?.attribute_based_styling !== false;
+    const styleAttributeSource = config?.options?.style_attribute_source || "statistics";
+    const singleColor = config?.options?.color;
+    const colorScaleMethod = config?.options?.value_color_scale || "quantile";
+
+    // Simple mode: use one color for all categories
+    if (!isAttributeBasedStyling) {
+      const simpleColor = singleColor || FALLBACK_COLORS[0];
+      return displayData.map(() => simpleColor);
     }
 
-    // Default behavior: generate from color_range
-    const palette =
-      orderedData.length > 0 ? config?.options?.color_range?.colors || FALLBACK_COLORS : ["#e0e0e0"];
+    // Group-by field styling (ordinal/custom): use explicit per-category mapping
+    if (styleAttributeSource === "group_by") {
+      if (colorMapLookup.size > 0) {
+        return displayData.map((item, index) => {
+          const mappedColor = colorMapLookup.get(normalizeValue(item.grouped_value));
+          if (mappedColor) return mappedColor;
 
-    return displayData.length === 1
-      ? [palette[0]]
-      : chroma.scale(palette).mode("lch").colors(displayData.length);
-  }, [displayData, orderedData.length, config?.options?.color_range?.colors, colorMapLookup]);
+          const palette = config?.options?.color_range?.colors || FALLBACK_COLORS;
+          const colors =
+            displayData.length === 1
+              ? [palette[0]]
+              : chroma.scale(palette).mode("lch").colors(displayData.length);
+          return colors[index];
+        });
+      }
+
+      const fallbackPalette = config?.options?.color_range?.colors || FALLBACK_COLORS;
+      return displayData.length === 1
+        ? [fallbackPalette[0]]
+        : chroma.scale(fallbackPalette).mode("lch").colors(displayData.length);
+    }
+
+    const palette = config?.options?.color_range?.colors || FALLBACK_COLORS;
+    if (orderedData.length === 0) {
+      return ["#e0e0e0"];
+    }
+
+    if (palette.length === 1) {
+      return displayData.map(() => palette[0]);
+    }
+
+    const values = orderedData.map((item) => item.operation_value);
+    let thresholds: number[] = [];
+
+    if (colorScaleMethod === "equal_interval") {
+      thresholds = getEqualIntervalThresholds(values, palette.length);
+    } else if (colorScaleMethod === "standard_deviation") {
+      thresholds = getStandardDeviationThresholds(values, palette.length);
+    } else if (colorScaleMethod === "heads_and_tails") {
+      thresholds = getHeadsAndTailsThresholds(values, palette.length);
+    } else {
+      thresholds = getQuantileThresholds(values, palette.length);
+    }
+
+    if (singleColor) {
+      return displayData.map(() => singleColor);
+    }
+
+    return displayData.map((item) => {
+      const classIndex = getClassIndex(item.operation_value, thresholds);
+      return palette[Math.min(classIndex, palette.length - 1)];
+    });
+  }, [
+    displayData,
+    config?.options?.attribute_based_styling,
+    config?.options?.style_attribute_source,
+    config?.options?.color,
+    config?.options?.value_color_scale,
+    config?.options?.color_range?.colors,
+    colorMapLookup,
+    orderedData,
+  ]);
 
   // Colors for highlight/selected states
   const selectedColor = config?.options?.selected_color || DEFAULT_SELECTED_COLOR;
@@ -223,18 +313,6 @@ export const CategoriesChartWidget = ({ config: rawConfig }: { config: Categorie
             flexDirection: "column",
             p: 2,
           }}>
-          {contextLabelValue && (
-            <Typography
-              variant="caption"
-              sx={{
-                textAlign: "center",
-                fontWeight: 600,
-                color: "text.secondary",
-                mb: 1,
-              }}>
-              {contextLabelValue}
-            </Typography>
-          )}
           {displayData.map((category, index) => {
             const totalValue = category.operation_value;
             const selectedValue = showHighlight ? selectedCountMap.get(category.grouped_value) || 0 : 0;

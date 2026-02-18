@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Checkbox, FormControlLabel, Stack, Typography } from "@mui/material";
+import { Checkbox, FormControlLabel, Paper, Stack, Typography, useTheme } from "@mui/material";
 import { useParams } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
 
+import { DEFAULT_COLOR_RANGE } from "@/lib/constants/color";
 import { useProjectLayers } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
 import { hasNestedSchemaPath } from "@/lib/utils/zod";
@@ -20,6 +21,7 @@ import { useLayerByGeomType, useLayerDatasetId } from "@/hooks/map/ToolsHooks";
 import WidgetColorPicker from "@/components/builder/widgets/common/WidgetColorPicker";
 import CategoryColorConfig from "@/components/builder/widgets/data/CategoryColorConfig";
 import CategoryOrderConfig from "@/components/builder/widgets/data/CategoryOrderConfig";
+import { ArrowPopper } from "@/components/ArrowPoper";
 import { TargetLayersConfig, WidgetFilterLayout } from "@/components/builder/widgets/data/DataConfig";
 import LayerFieldSelector from "@/components/map/common/LayerFieldSelector";
 import { StatisticSelector } from "@/components/map/common/StatisticSelector";
@@ -27,6 +29,8 @@ import SectionHeader from "@/components/map/panels/common/SectionHeader";
 import SectionOptions from "@/components/map/panels/common/SectionOptions";
 import Selector from "@/components/map/panels/common/Selector";
 import TextFieldInput from "@/components/map/panels/common/TextFieldInput";
+import ColorPalette from "@/components/map/panels/style/color/ColorPalette";
+import ColorRangeSelector from "@/components/map/panels/style/color/ColorRangeSelector";
 
 export interface WidgetConfigProps {
   active?: boolean;
@@ -552,8 +556,11 @@ export const WidgetOptions = ({ active = true, sectionLabel, config, onChange }:
 
 export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: WidgetConfigProps) => {
   const { t } = useTranslation("common");
+  const theme = useTheme();
   const { projectId } = useParams();
   const schema = widgetSchemaMap[config.type];
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isClickAwayEnabled, setIsClickAwayEnabled] = useState(true);
 
   // Check if this widget handles its own style configuration
   const hasCustomStyleHandling = widgetTypesWithCustomStyle.includes(config.type as any);
@@ -588,6 +595,50 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
 
   // Check if we're in highlight mode (for showing selected color option)
   const isHighlightMode = (config as any)?.options?.selection_response === "highlight";
+  const isCategoriesChart = config.type === widgetTypes.Enum.categories_chart;
+
+  // Categories chart supports simple single-color and value-based styling
+  const supportsAttributeStylingToggle = isCategoriesChart && hasColorDef && hasColorRangeDef;
+  const isAttributeStylingEnabled = (config as any)?.options?.attribute_based_styling !== false;
+  const showSimpleColorPicker = hasColorDef && (!supportsAttributeStylingToggle || !isAttributeStylingEnabled);
+  const valueColorScale = (config as any)?.options?.value_color_scale || "quantile";
+  const styleAttributeSource = (config as any)?.options?.style_attribute_source || "statistics";
+
+  const valueColorScaleOptions = useMemo(
+    () => [
+      { value: "quantile", label: t("quantile") },
+      { value: "equal_interval", label: t("equal_interval") },
+      { value: "standard_deviation", label: t("standard_deviation") },
+      { value: "heads_and_tails", label: t("heads_and_tails") },
+    ],
+    [t]
+  );
+
+  const selectedValueColorScale = useMemo(() => {
+    return valueColorScaleOptions.find((opt) => opt.value === valueColorScale);
+  }, [valueColorScaleOptions, valueColorScale]);
+
+  const styleAttributeSourceOptions = useMemo(() => {
+    const options: SelectorItem[] = [];
+    const operationValueFieldName = (config?.setup as any)?.operation_value;
+    const groupByFieldName = (config?.setup as any)?.group_by_column_name;
+    if (operationValueFieldName || (config as any)?.setup?.operation_type === "count") {
+      options.push({ value: "statistics", label: "Statistics field" });
+    }
+    if (groupByFieldName) {
+      options.push({ value: "group_by", label: "Group-by field" });
+    }
+    return options;
+  }, [config]);
+
+  const selectedStyleAttributeSource = useMemo(() => {
+    return styleAttributeSourceOptions.find((option) => option.value === styleAttributeSource);
+  }, [styleAttributeSourceOptions, styleAttributeSource]);
+
+  const usesStatisticsStyleSource = styleAttributeSource === "statistics";
+  const usesGroupByStyleSource = styleAttributeSource === "group_by";
+
+  const selectedColorRange = ((config as any)?.options?.color_range || DEFAULT_COLOR_RANGE) as any;
 
   // Get layer dataset ID for color/order config
   const selectedLayerForStyle = useMemo(() => {
@@ -614,10 +665,15 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
     return configOptions?.context_label;
   }, [configOptions]);
 
+  const statisticValueFieldName = useMemo(() => {
+    return (config?.setup as any)?.operation_value;
+  }, [config?.setup]);
+
   const selectedContextField = useMemo(() => {
-    if (!contextLabel?.field) return undefined;
-    return contextLabelFields.find((f) => f.name === contextLabel.field);
-  }, [contextLabel?.field, contextLabelFields]);
+    const selectedFieldName = contextLabel?.field || statisticValueFieldName;
+    if (!selectedFieldName) return undefined;
+    return contextLabelFields.find((f) => f.name === selectedFieldName);
+  }, [contextLabel?.field, contextLabelFields, statisticValueFieldName]);
 
   const handleOptionChange = useCallback(
     (key: string, value: any) => {
@@ -685,12 +741,107 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
             baseOptions={
               <Stack spacing={2}>
                 {/* Base color for charts */}
-                {hasColorDef && (
+                {showSimpleColorPicker && (
                   <WidgetColorPicker
                     label={t("base_color")}
                     color={(config as any)?.options?.color || "#0e58ff"}
                     onChange={(color) => handleOptionChange("color", color)}
                   />
+                )}
+
+                {/* Toggle between simple and value-based styling */}
+                {supportsAttributeStylingToggle && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        color="primary"
+                        checked={isAttributeStylingEnabled}
+                        onChange={(e) => {
+                          handleOptionChange("attribute_based_styling", e.target.checked);
+                        }}
+                      />
+                    }
+                    label={<Typography variant="body2">Value-based styling</Typography>}
+                  />
+                )}
+
+                {supportsAttributeStylingToggle && isAttributeStylingEnabled && (
+                  <Selector
+                    selectedItems={selectedStyleAttributeSource}
+                    setSelectedItems={(item: SelectorItem) => {
+                      handleOptionChange("style_attribute_source", item?.value || "statistics");
+                    }}
+                    items={styleAttributeSourceOptions}
+                    label="Styling field"
+                  />
+                )}
+
+                {supportsAttributeStylingToggle && isAttributeStylingEnabled && usesStatisticsStyleSource && (
+                  <Selector
+                    selectedItems={selectedValueColorScale}
+                    setSelectedItems={(item: SelectorItem) => handleOptionChange("value_color_scale", item?.value)}
+                    items={valueColorScaleOptions}
+                    label={t("color_scale")}
+                  />
+                )}
+
+                {supportsAttributeStylingToggle && isAttributeStylingEnabled && usesStatisticsStyleSource && hasColorRangeDef && (
+                  <ArrowPopper
+                    open={paletteOpen}
+                    placement="bottom"
+                    arrow={false}
+                    isClickAwayEnabled={isClickAwayEnabled}
+                    onClose={() => setPaletteOpen(false)}
+                    content={
+                      <Paper
+                        sx={{
+                          py: 3,
+                          boxShadow: "rgba(0, 0, 0, 0.16) 0px 6px 12px 0px",
+                          width: "235px",
+                          maxHeight: "500px",
+                        }}>
+                        <ColorRangeSelector
+                          scaleType={valueColorScale}
+                          selectedColorRange={selectedColorRange}
+                          onSelectColorRange={(colorRange) => {
+                            handleOptionChange("color_range", colorRange);
+                            setPaletteOpen(false);
+                          }}
+                          setIsBusy={(busy) => setIsClickAwayEnabled(!busy)}
+                          setIsOpen={setPaletteOpen}
+                        />
+                      </Paper>
+                    }>
+                    <Stack spacing={1}>
+                      <Typography variant="body2" color={paletteOpen ? "primary.main" : "text.primary"}>
+                        {t("palette")}
+                      </Typography>
+                      <Stack
+                        onClick={() => setPaletteOpen(!paletteOpen)}
+                        direction="row"
+                        alignItems="center"
+                        sx={{
+                          borderRadius: theme.spacing(1.2),
+                          border: "1px solid",
+                          outline: "2px solid transparent",
+                          minHeight: "40px",
+                          borderColor: theme.palette.mode === "dark" ? "#464B59" : "#CBCBD1",
+                          ...(paletteOpen && {
+                            outline: `2px solid ${theme.palette.primary.main}`,
+                          }),
+                          cursor: "pointer",
+                          p: 2,
+                          "&:hover": {
+                            ...(!paletteOpen && {
+                              borderColor: theme.palette.mode === "dark" ? "#5B5F6E" : "#B8B7BF",
+                            }),
+                          },
+                        }}>
+                        <ColorPalette colors={selectedColorRange?.colors || []} />
+                      </Stack>
+                    </Stack>
+                  </ArrowPopper>
                 )}
 
                 {/* Hover color - always visible when defined */}
@@ -714,6 +865,8 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
                 {/* Category order + colors for charts (integrated like layer styling ordinal) */}
                 {hasColorMapDef &&
                   hasCustomOrderDef &&
+                  isAttributeStylingEnabled &&
+                  (!isCategoriesChart || usesGroupByStyleSource) &&
                   selectedLayerDatasetIdForStyle &&
                   groupByColumnNameForStyle && (
                     <CategoryColorConfig
@@ -729,11 +882,11 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
                           ...config,
                           setup: {
                             ...((config as any).setup || {}),
-                            custom_order: order.length ? order : undefined,
+                            custom_order: order,
                           },
                           options: {
                             ...((config as any).options || {}),
-                            color_map: colorMap.length ? colorMap : undefined,
+                            color_map: colorMap,
                           },
                         } as WidgetConfigSchema);
                       }}
@@ -743,12 +896,12 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
                           ...config,
                           setup: {
                             ...((config as any).setup || {}),
-                            custom_order: order.length ? order : undefined,
+                            custom_order: order,
                           },
                           options: {
                             ...((config as any).options || {}),
                             color_range: colorRange,
-                            color_map: colorMap.length ? colorMap : undefined,
+                            color_map: colorMap,
                           },
                         } as WidgetConfigSchema);
                       }}
@@ -758,6 +911,8 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
                 {/* Category order only (no color picking) - for widgets with custom_order but no color_map */}
                 {hasCustomOrderDef &&
                   !hasColorMapDef &&
+                  isAttributeStylingEnabled &&
+                  (!isCategoriesChart || usesGroupByStyleSource) &&
                   selectedLayerDatasetIdForStyle &&
                   groupByColumnNameForStyle && (
                     <CategoryOrderConfig
@@ -771,7 +926,7 @@ export const WidgetStyle = ({ active = true, sectionLabel, config, onChange }: W
                   )}
 
                 {/* Context label for pie charts - shows dynamic label based on filtered data */}
-                {hasContextLabelDef && selectedLayerDatasetIdForStyle && (
+                {hasContextLabelDef && selectedLayerDatasetIdForStyle && !isCategoriesChart && (
                   <>
                     <LayerFieldSelector
                       fields={contextLabelFields}
