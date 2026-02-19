@@ -203,10 +203,12 @@
     },
     "demand_path": {
       "label": "Nachfrage-Layer",
-      "description": "Layer mit den Nachfragepunkten"},
-     "two_sfca_type": {
+      "description": "Layer mit den Nachfragepunkten"
+    },
+    "two_sfca_type": {
       "label": "2SFCA-Typ",
-      "description": "Art der Two-Step Floating Catchment Area-Methode"},
+      "description": "Art der Two-Step Floating Catchment Area-Methode"
+    },
     "weekday": {
       "label": "Tag",
       "description": "Art des Tages für den ÖV-Fahrplan"
@@ -246,6 +248,10 @@
     "nb_cluster": {
       "label": "Anzahl Cluster",
       "description": "Anzahl der zu erstellenden Zonen"
+    },
+    "use_compactness": {
+      "label": "Zonenabstand begrenzen",
+      "description": "Aktivieren um eine maximale Entfernung zwischen Punkten in derselben Zone festzulegen"
     },
     "max_distance_threshold": {
       "label": "Max. Entfernungsschwelle",
@@ -619,6 +625,10 @@
       "label": "Name der Ergebnislayer",
       "description": "Benutzerdefinierter Name für die Ergebnis-Layer"
     },
+    "summary_layer_name": {
+      "label": "Name der Zusammenfassungsebene",
+      "description": "Benutzerdefinierter Name für die Cluster-Zusammenfassungsebene"
+    },
     "starting_points_layer_name": {
       "label": "Name des Startpunkte-Layer",
       "description": "Benutzerdefinierter Name für die Startpunkte-Layer"
@@ -908,15 +918,26 @@
     "origin_destination_points": "QZ Punkte",
     "join": "Objekte verbinden",
     "geocoding": "Geokodierung",
-    "clustered_zones": "Clusterbasierte Zonen"
+    "clustered_features": "Clusterzuordnung",
+    "cluster_summary": "Cluster-Zusammenfassung"
   },
   "two_sfca_type": {
-      "twosfca": "2SFCA",
-      "e2sfca": "Erweiterte 2SFCA",
-      "m2sfca": "Modifizierte 2SFCA"
-    },
-    "cluster_type": {
-      "kmean": "K-Means",
-      "equal_size": "Ausgewogene Zonen"
-    }
+    "twosfca": "2SFCA",
+    "e2sfca": "Erweiterte 2SFCA",
+    "m2sfca": "Modifizierte 2SFCA"
+  },
+  "cluster_type": {
+    "kmean": "K-Means",
+    "equal_size": "Ausgewogene Zonen"
+  },
+  "weight_method": {
+    "label": "Gewichtungsmethode",
+    "description": "Wählen Sie, wie die Zonen ausgeglichen werden: nach Punktanzahl oder nach einem numerischen Feldwert",
+    "count": "Anzahl (Gleiche Punkte)",
+    "field": "Feldwert"
+  },
+  "weight_field": {
+    "label": "Gewichtungsfeld",
+    "description": "Numerisches Feld als Gewichtung verwenden"
+  }
 }

@@ -249,6 +249,10 @@
       "label": "Number of Clusters",
       "description": "Number of zones to create"
     },
+    "use_compactness": {
+      "label": "Limit Zone Distance",
+      "description": "Enable to set a maximum distance between points in the same zone"
+    },
     "num_triangles": {
       "label": "Curve Smoothness",
       "description": "Number of segments to approximate curves"
@@ -605,6 +609,10 @@
       "label": "Result Layer Name",
       "description": "Custom name for the result layer"
     },
+    "summary_layer_name": {
+      "label": "Summary Layer Name",
+      "description": "Custom name for the cluster summary layer"
+    },
     "starting_points_layer_name": {
       "label": "Starting Points Layer Name",
       "description": "Custom name for the starting points layer"
@@ -894,15 +902,26 @@
     "origin_destination_points": "OD Points",
     "join": "Join Features",
     "geocoding": "Geocoding",
-    "clustered_zones": "Clustered Zones"
+    "clustered_features": "Cluster Assignment",
+    "cluster_summary": "Cluster Summary"
   },
-    "two_sfca_type": {
-      "2fsca": "2SFCA",
-      "e2sfca": "Enhanced 2SFCA",
-      "m2sfca": "Modified 2SFCA"
-    },
-    "cluster_type": {
-      "kmean": "K-Means",
-      "equal_size": "Balanced Zones"
-    }
+  "two_sfca_type": {
+    "2fsca": "2SFCA",
+    "e2sfca": "Enhanced 2SFCA",
+    "m2sfca": "Modified 2SFCA"
+  },
+  "cluster_type": {
+    "kmean": "K-Means",
+    "equal_size": "Balanced Zones"
+  },
+  "weight_method": {
+    "label": "Weight Method",
+    "description": "Choose how zones are balanced: by point count or by a numeric field value",
+    "count": "Count (Equal Points)",
+    "field": "Field Value"
+  },
+  "weight_field": {
+    "label": "Weight Field",
+    "description": "Numeric field to use as balance weight"
+  }
 }
