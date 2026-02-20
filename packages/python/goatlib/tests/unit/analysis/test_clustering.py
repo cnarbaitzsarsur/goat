@@ -6,9 +6,7 @@ import duckdb
 import numpy as np
 import pytest
 
-from goatlib.analysis.geoanalysis.clustering_kmean import (
-    ClusteringSpatialKMeansUDF,
-)
+
 from goatlib.analysis.geoanalysis.clustering_zones import (
     ClusteringZones,
 )
@@ -25,53 +23,12 @@ def ensure_result_dir():
     """Ensure result directory exists."""
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-class TestKMeansClustering:
-    """Unit tests for K-means clustering."""
-
-    def test_kmeans_clustering_kita_data(self) -> None:
-        """Test spatial K-means clustering with kita (kindergarten) data."""
-        input_path = str(TEST_DATA_DIR / "kita_munich.geojson")
-        result_dir = Path(__file__).parent.parent.parent / "result"
-        result_dir.mkdir(parents=True, exist_ok=True)
-
-        # Verify test data exists
-        assert Path(input_path).exists(), f"Test data not found: {input_path}"
-
-        # Initialize clustering tool
-        clustering_tool = ClusteringSpatialKMeansUDF()
-
-        # Set up clustering parameters
-        params = ClusteringParams(
-            input_path=input_path,
-            output_path=str(result_dir / "cluster_kita_kmeans.parquet"),
-            nb_cluster=8,
-        )
-
-        # Run clustering analysis
-        results = clustering_tool._run_implementation(params)
-
-        # Verify results
-        assert len(results) == 1
-        output_path, metadata = results[0]
-        assert output_path.exists()
-
-        # Read output and verify cluster assignments
-        con = duckdb.connect()
-        con.execute("INSTALL spatial; LOAD spatial;")
-        df = con.execute(f"SELECT * FROM '{output_path}'").df()
-        con.close()
-
-        assert "cluster_id" in df.columns
-        assert len(df["cluster_id"].unique()) == 8
-
-
 class TestZonesClustering:
     """Unit tests for Balanced Zones clustering (iterative boundary refinement)."""
 
     def test_balanced_zones_kita_data(self) -> None:
         """Test balanced zones clustering with kita (kindergarten) data."""
-        input_path = str(TEST_DATA_DIR / "kita_munich.geojson")
+        input_path = str(TEST_DATA_DIR / "kita.gpkg")
         result_dir = Path(__file__).parent.parent.parent / "result"
         result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -85,7 +42,7 @@ class TestZonesClustering:
         params = ClusteringParams(
             input_path=input_path,
             output_path=str(result_dir / "cluster_kita_balanced.parquet"),
-            nb_cluster=8,
+            nb_cluster=4,
             cluster_type=ClusterType.equal_size,
         )
 
@@ -93,29 +50,124 @@ class TestZonesClustering:
         results = clustering_tool._run_implementation(params)
 
         # Verify results
-        assert len(results) == 1
-        output_path, metadata = results[0]
+        assert len(results) == 2  # Main points output + summary output
+        output_path, metadata = results[0]  # Main points output
+        summary_path, summary_metadata = results[1]  # Summary output
         assert output_path.exists()
+        assert summary_path.exists()
 
         # Read output and verify cluster assignments
         con = duckdb.connect()
         con.execute("INSTALL spatial; LOAD spatial;")
-        df = con.execute(f"SELECT * FROM '{output_path}'").df()
+        df = con.execute(f"SELECT * FROM '{summary_path}'").df()
         con.close()
 
         assert "cluster_id" in df.columns
         unique_clusters = df["cluster_id"].unique()
-        assert len(unique_clusters) == 8
+        assert len(unique_clusters) == 4
 
         # Check zone sizes are more balanced than K-means would typically produce
-        zone_sizes = df["cluster_id"].value_counts().values
+        zone_sizes = df["cluster_size"].values
         size_std = np.std(zone_sizes)
         size_mean = np.mean(zone_sizes)
-        cv = size_std / size_mean  # Coefficient of variation
+        cv = size_std / size_mean  
+        assert cv < 0.5, f"Zones are not well balanced: CV = {cv:.3f}"
 
-        print(f"\nBalanced zones size distribution:")
-        print(f"  Sizes: {sorted(zone_sizes)}")
+
+    def test_kmeans_kita_data(self) -> None:
+        """Test K-means clustering with kita (kindergarten) data."""
+        input_path = str(TEST_DATA_DIR / "kita.gpkg")
+        result_dir = Path(__file__).parent.parent.parent / "result"
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        # Verify test data exists
+        assert Path(input_path).exists(), f"Test data not found: {input_path}"
+
+        # Initialize clustering tool
+        clustering_tool = ClusteringZones()
+
+        # Set up K-means parameters
+        params = ClusteringParams(
+            input_path=input_path,
+            output_path=str(result_dir / "cluster_kita_kmeans.parquet"),
+            nb_cluster=4,
+            cluster_type=ClusterType.kmean,
+        )
+
+        # Run clustering analysis
+        results = clustering_tool._run_implementation(params)
+
+        # Verify results
+        assert len(results) == 2  # Main points output + summary output
+        output_path, metadata = results[0]  # Main points output
+        summary_path, summary_metadata = results[1]  # Summary output
+        assert output_path.exists()
+        assert summary_path.exists()
+
+        # Read output and verify cluster assignments
+        con = duckdb.connect()
+        con.execute("INSTALL spatial; LOAD spatial;")
+        df = con.execute(f"SELECT * FROM '{summary_path}'").df()
+        con.close()
+
+        assert "cluster_id" in df.columns
+        unique_clusters = df["cluster_id"].unique()
+        assert len(unique_clusters) == 4
+
+        print(f"\nK-means cluster distribution:")
+        print(f"  Cluster sizes: {sorted(df['cluster_size'].values)}")
+
+    def test_balanced_zones_kita_field_weight(self) -> None:
+        """Test balanced zones clustering with field-based weighting (capacity_int)."""
+        input_path = str(TEST_DATA_DIR / "kita.gpkg")
+        result_dir = Path(__file__).parent.parent.parent / "result"
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        # Verify test data exists
+        assert Path(input_path).exists(), f"Test data not found: {input_path}"
+
+        # Initialize clustering tool
+        clustering_tool = ClusteringZones()
+
+        # Set up clustering parameters with field-based weighting
+        params = ClusteringParams(
+            input_path=input_path,
+            output_path=str(result_dir / "cluster_kita_field.parquet"),
+            nb_cluster=4,
+            cluster_type=ClusterType.equal_size,
+            weight_method="field",
+            weight_field="capacity_int",
+        )
+
+        # Run clustering analysis
+        results = clustering_tool._run_implementation(params)
+
+        # Verify results
+        assert len(results) == 2  # Main points output + summary output
+        output_path, metadata = results[0]  # Main points output
+        summary_path, summary_metadata = results[1]  # Summary output
+        assert output_path.exists()
+        assert summary_path.exists()
+
+        # Read output and verify cluster assignments
+        con = duckdb.connect()
+        con.execute("INSTALL spatial; LOAD spatial;")
+        df = con.execute(f"SELECT * FROM '{summary_path}'").df()
+        con.close()
+
+        assert "cluster_id" in df.columns
+        unique_clusters = df["cluster_id"].unique()
+        assert len(unique_clusters) == 4
+
+        # Check that cluster_size reflects the weighted sum (capacity_int), not just point count
+        print(f"\nBalanced zones (field: capacity_int) distribution:")
+        print(f"  Cluster sizes (weighted): {sorted(df['cluster_size'].values)}")
+
+        # Verify balance on the weighted sizes
+        zone_sizes = df["cluster_size"].values
+        size_std = np.std(zone_sizes)
+        size_mean = np.mean(zone_sizes)
+        cv = size_std / size_mean
+
         print(f"  Mean: {size_mean:.1f}, Std: {size_std:.1f}, CV: {cv:.3f}")
-
-        # CV should be reasonably low for balanced zones (< 0.8)
-        assert cv < 0.8, f"Zones are not well balanced: CV = {cv:.3f}"
+        assert cv < 0.5, f"Weighted zones are not well balanced: CV = {cv:.3f}"

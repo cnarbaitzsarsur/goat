@@ -299,12 +299,13 @@ class OpportunityGravity(OpportunityBase):
         ),
     )
     potential_constant: float | None = Field(
-        1.0,
+        None,
         gt=0.0,
         description="Constant potential value applied to all features.",
         json_schema_extra=ui_field(
             section="opportunities",
             field_order=6,
+            widget="number",
             visible_when={"input_path": {"$ne": None}, "potential_type": "constant"},
         ),
     )
