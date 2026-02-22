@@ -14,6 +14,7 @@ from pydantic import Field
 from goatlib.analysis.accessibility import (
     STATION_CONFIG_DEFAULT,
     OevGueteklasseParams,
+    OevGueteklasseStationConfig,
     OevGueteklasseTool,
     PTTimeWindow,
 )
@@ -189,6 +190,11 @@ class OevGueteklassenToolParams(ScenarioSelectorMixin, ToolInputBase):
         description="Output path for quality classes layer.",
         json_schema_extra=ui_field(section="configuration", hidden=True),
     )
+    station_config: OevGueteklasseStationConfig | None = Field(
+        default=None,
+        description="Optional custom station configuration for ÖV-Güteklassen.",
+        json_schema_extra=ui_field(section="configuration", hidden=True),
+    )
 
 
 class OevGueteklassenToolRunner(BaseToolRunner[OevGueteklassenToolParams]):
@@ -227,8 +233,17 @@ class OevGueteklassenToolRunner(BaseToolRunner[OevGueteklassenToolParams]):
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """Return ÖV-Güteklassen style with ordinal color scale for A-F classes."""
-        return get_oev_gueteklassen_style()
+        """Return ÖV-Güteklassen style with class count from active configuration."""
+        station_config = params.station_config or STATION_CONFIG_DEFAULT
+
+        class_values = [
+            int(pt_class)
+            for distances in station_config.classification.values()
+            for pt_class in distances.values()
+        ]
+        class_count = max(class_values) if class_values else 1
+
+        return get_oev_gueteklassen_style(class_count=class_count)
 
     def process(
         self: Self, params: OevGueteklassenToolParams, temp_dir: Path
@@ -270,7 +285,7 @@ class OevGueteklassenToolRunner(BaseToolRunner[OevGueteklassenToolParams]):
             stop_times_path=stop_times_path,
             time_window=time_window,
             output_path=str(output_path),
-            station_config=STATION_CONFIG_DEFAULT,
+            station_config=params.station_config or STATION_CONFIG_DEFAULT,
             stations_output_path=str(stations_output_path),
         )
 

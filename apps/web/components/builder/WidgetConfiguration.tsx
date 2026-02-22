@@ -1,5 +1,5 @@
 import { Stack } from "@mui/material";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { removeTemporaryFilter } from "@/lib/store/map/slice";
 import { hasNestedSchemaPath } from "@/lib/utils/zod";
@@ -26,49 +26,65 @@ interface WidgetConfigurationProps {
 const WidgetConfiguration = ({ onChange, samePanelWidgets }: WidgetConfigurationProps) => {
   const dispatch = useAppDispatch();
   const selectedBuilderItem = useAppSelector((state) => state.map.selectedBuilderItem);
+  const selectedBuilderItemRef = useRef(selectedBuilderItem);
+
+  useEffect(() => {
+    selectedBuilderItemRef.current = selectedBuilderItem;
+  }, [selectedBuilderItem]);
+
   const existingFilter = useAppSelector((state) =>
     state.map.temporaryFilters.find((filter) => filter.id === selectedBuilderItem?.id)
   );
 
-  if (selectedBuilderItem?.type !== "widget" || !selectedBuilderItem?.config) {
-    return null; // Don't render anything if it's not a widget or has no config
-  }
+  const widgetConfig =
+    selectedBuilderItem?.type === "widget" ? selectedBuilderItem.config : undefined;
+  const schema = widgetConfig ? widgetSchemaMap[widgetConfig.type] : undefined;
 
-  const schema = widgetSchemaMap[selectedBuilderItem?.config?.type];
-  if (!schema) {
-    console.error(`Widget schema not found for type: ${selectedBuilderItem?.config?.type}`);
-    return null;
-  }
+  const handleConfigChange = useCallback(
+    (config: never) => {
+      const latestSelectedBuilderItem = selectedBuilderItemRef.current;
+      if (!latestSelectedBuilderItem || latestSelectedBuilderItem.type !== "widget") {
+        return;
+      }
 
-  const handleConfigChange = (config: never) => {
-    if (existingFilter) {
-      dispatch(removeTemporaryFilter(existingFilter.id));
-    }
-    onChange({
-      ...selectedBuilderItem,
-      config,
-    });
-  };
+      if (existingFilter) {
+        dispatch(removeTemporaryFilter(existingFilter.id));
+      }
+
+      onChange({
+        ...latestSelectedBuilderItem,
+        config,
+      });
+    },
+    [dispatch, existingFilter, onChange]
+  );
 
   // Handle full widget update (for tabs widget that needs to update tabWidgets)
-  const handleWidgetChange = (updatedWidget: BuilderWidgetSchema) => {
-    if (existingFilter) {
-      dispatch(removeTemporaryFilter(existingFilter.id));
-    }
-    onChange(updatedWidget);
-  };
+  const handleWidgetChange = useCallback(
+    (updatedWidget: BuilderWidgetSchema) => {
+      if (existingFilter) {
+        dispatch(removeTemporaryFilter(existingFilter.id));
+      }
+      onChange(updatedWidget);
+    },
+    [dispatch, existingFilter, onChange]
+  );
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const hasDataConfig = useMemo(() => {
+    if (!schema) return false;
     return hasNestedSchemaPath(schema, "setup.layer_project_id");
   }, [schema]);
 
+  if (!widgetConfig || !schema) {
+    return null;
+  }
+
   // Special handling for tabs widget
-  if (selectedBuilderItem.config.type === "tabs") {
+  if (widgetConfig.type === "tabs") {
     return (
       <TabsWidgetConfig
-        widget={selectedBuilderItem}
-        config={selectedBuilderItem.config as TabsContainerSchema}
+        widget={selectedBuilderItem as BuilderWidgetSchema}
+        config={widgetConfig as TabsContainerSchema}
         onChange={handleWidgetChange}
         samePanelWidgets={samePanelWidgets}
       />
@@ -77,11 +93,11 @@ const WidgetConfiguration = ({ onChange, samePanelWidgets }: WidgetConfiguration
 
   return (
     <Stack direction="column" spacing={2} justifyContent="space-between">
-      <WidgetInfo config={selectedBuilderItem.config} onChange={handleConfigChange} />
-      {hasDataConfig && <WidgetData config={selectedBuilderItem.config} onChange={handleConfigChange} />}
-      <WidgetSetup config={selectedBuilderItem.config} onChange={handleConfigChange} />
-      <WidgetStyle config={selectedBuilderItem.config} onChange={handleConfigChange} />
-      <WidgetOptions config={selectedBuilderItem.config} onChange={handleConfigChange} />
+      <WidgetInfo config={widgetConfig} onChange={handleConfigChange} />
+      {hasDataConfig && <WidgetData config={widgetConfig} onChange={handleConfigChange} />}
+      <WidgetSetup config={widgetConfig} onChange={handleConfigChange} />
+      <WidgetStyle config={widgetConfig} onChange={handleConfigChange} />
+      <WidgetOptions config={widgetConfig} onChange={handleConfigChange} />
     </Stack>
   );
 };

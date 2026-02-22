@@ -5,7 +5,7 @@
  * Uses Number() instead of parseFloat() to avoid converting mixed strings
  * like "12abc" to "12".
  *
- * @param v - The string value to normalize
+ * @param v - The value to normalize
  * @returns The normalized string value
  *
  * @example
@@ -14,9 +14,10 @@
  * normalizeValue("12abc") // "12abc" (unchanged - not fully numeric)
  * normalizeValue("abc")   // "abc" (unchanged)
  */
-export const normalizeValue = (v: string): string => {
-  const trimmed = v.trim();
-  if (trimmed === "") return v;
+export const normalizeValue = (v: unknown): string => {
+  const raw = typeof v === "string" ? v : String(v);
+  const trimmed = raw.trim();
+  if (trimmed === "") return raw;
   const num = Number(trimmed);
-  return Number.isFinite(num) ? String(num) : v;
+  return Number.isFinite(num) ? String(num) : raw;
 };

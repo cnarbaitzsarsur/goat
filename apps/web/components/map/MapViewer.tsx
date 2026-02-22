@@ -95,6 +95,32 @@ const MapViewer: React.FC<MapProps> = ({
 
   const interactiveLayerIds = useMemo(() => layers?.map((layer) => layer.id.toString()), [layers]);
 
+  const hiddenSystemProperties = useMemo(
+    () =>
+      new Set([
+        "layer_id",
+        "id",
+        "feature_id",
+        "h3_3",
+        "h3_6",
+        "cluster",
+        "clustered",
+        "point_count",
+        "point_count_abbreviated",
+        "sqrt_point_count",
+        "ags_gemeinde",
+        "ags_landkreis",
+      ]),
+    []
+  );
+
+  const isSystemPropertyKey = useCallback(
+    (key: string) => {
+      return hiddenSystemProperties.has(key);
+    },
+    [hiddenSystemProperties]
+  );
+
   const handlePopoverClose = () => {
     dispatch(setPopupInfo(undefined));
     dispatch(setHighlightedFeature(undefined));
@@ -102,7 +128,6 @@ const MapViewer: React.FC<MapProps> = ({
 
   const handleMapClick = (e: MapLayerMouseEvent) => {
     const { features } = e;
-    const hiddenProperties = ["layer_id", "id", "h3_3", "h3_6"];
 
     if (features && features.length > 0 && isGetInfoActive) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,7 +185,7 @@ const MapViewer: React.FC<MapProps> = ({
         const primitiveProperties = {};
         if (properties) {
           for (const key in properties) {
-            if (!hiddenProperties.includes(key)) {
+            if (!isSystemPropertyKey(key)) {
               const value = properties[key];
               try {
                 // Type assertion to satisfy JSON.parse

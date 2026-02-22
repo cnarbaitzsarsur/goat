@@ -404,6 +404,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             placeholder={rawConfig?.setup.placeholder}
             multiple={rawConfig?.setup.multiple}
             cqlFilter={crossFilterCql}
+            labelMap={rawConfig?.options?.label_map}
           />
         )}
       {layer &&
@@ -424,6 +425,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             customOrder={rawConfig?.setup.custom_order}
             cqlFilter={crossFilterCql}
             color={rawConfig?.options?.color}
+            labelMap={rawConfig?.options?.label_map}
           />
         )}
       {layer &&
@@ -443,6 +445,7 @@ export const FilterDataWidget = ({ id, config: rawConfig, projectLayers }: Filte
             customOrder={rawConfig?.setup.custom_order}
             cqlFilter={crossFilterCql}
             color={rawConfig?.options?.color}
+            labelMap={rawConfig?.options?.label_map}
           />
         )}
       {layer &&

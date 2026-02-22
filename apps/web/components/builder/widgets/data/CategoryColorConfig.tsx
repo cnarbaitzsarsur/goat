@@ -4,29 +4,28 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Delete as DeleteIcon,
   DragIndicator as DragIndicatorIcon,
-  MoreVert as MoreVertIcon,
   SwapVert as SortIcon,
 } from "@mui/icons-material";
 import {
   Box,
+  Button,
   Chip,
   IconButton,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
   Paper,
+  Popover,
   Skeleton,
   Stack,
+  TextField,
   Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
 import chroma from "chroma-js";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
 import { useLayerUniqueValues } from "@/lib/api/layers";
 import { COLOR_RANGES, DEFAULT_COLOR_RANGE } from "@/lib/constants/color";
@@ -35,7 +34,9 @@ import type { ColorRange } from "@/lib/validations/layer";
 import type { SelectorItem } from "@/types/map/common";
 
 import { ArrowPopper } from "@/components/ArrowPoper";
+import type { PopperMenuItem } from "@/components/common/PopperMenu";
 import WidgetColorPicker from "@/components/builder/widgets/common/WidgetColorPicker";
+import MoreMenu from "@/components/common/PopperMenu";
 import FormLabelHelper from "@/components/common/FormLabelHelper";
 import Selector from "@/components/map/panels/common/Selector";
 import ColorPalette from "@/components/map/panels/style/color/ColorPalette";
@@ -49,38 +50,74 @@ const DEFAULT_PALETTE = ["#5A1846", "#900C3F", "#C70039", "#E3611C", "#F1920E", 
 interface ColorMapEntry {
   value: string;
   color: string;
+  label: string;
 }
 
 interface SortableColorItemProps {
   item: ColorMapEntry;
   onRemove: (value: string) => void;
   onColorChange: (value: string, color: string) => void;
+  onLabelChange: (value: string, label: string) => void;
+  showColorPicker?: boolean;
 }
 
-const SortableColorItem = ({ item, onRemove, onColorChange }: SortableColorItemProps) => {
+const SortableColorItem = ({
+  item,
+  onRemove,
+  onColorChange,
+  onLabelChange,
+  showColorPicker = true,
+}: SortableColorItemProps) => {
   const theme = useTheme();
   const { t } = useTranslation("common");
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.value });
-  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [renameAnchorEl, setRenameAnchorEl] = useState<HTMLElement | null>(null);
+  const actionButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [draftLabel, setDraftLabel] = useState(item.label);
+
+  const renameOpen = Boolean(renameAnchorEl);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    event.stopPropagation();
-    setMenuAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setMenuAnchorEl(null);
-  };
-
   const handleRemove = () => {
-    handleMenuClose();
     onRemove(item.value);
   };
+
+  const handleStartRename = () => {
+    setDraftLabel(item.label);
+    setRenameAnchorEl(actionButtonRef.current);
+  };
+
+  const handleRenameClose = () => {
+    setRenameAnchorEl(null);
+  };
+
+  const handleRenameSave = () => {
+    const nextLabel = draftLabel.trim() || item.value;
+    onLabelChange(item.value, nextLabel);
+    handleRenameClose();
+  };
+
+  const handleRenameCancel = () => {
+    setDraftLabel(item.label);
+    handleRenameClose();
+  };
+
+  const menuItems = useMemo<PopperMenuItem[]>(
+    () => [
+      { id: "rename", label: t("rename"), icon: ICON_NAME.EDIT },
+      {
+        id: "remove",
+        label: t("remove"),
+        icon: ICON_NAME.TRASH,
+        color: theme.palette.error.main,
+      },
+    ],
+    [t, theme.palette.error.main]
+  );
 
   return (
     <Stack
@@ -99,28 +136,84 @@ const SortableColorItem = ({ item, onRemove, onColorChange }: SortableColorItemP
       <Box {...attributes} {...listeners} sx={{ cursor: "grab", display: "flex", alignItems: "center" }}>
         <DragIndicatorIcon fontSize="small" sx={{ color: theme.palette.text.secondary }} />
       </Box>
-      <WidgetColorPicker compact color={item.color} onChange={(color) => onColorChange(item.value, color)} />
-      <Typography
-        variant="body2"
-        sx={{
-          flex: 1,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}>
-        {item.value}
-      </Typography>
-      <IconButton size="small" onClick={handleMenuOpen}>
-        <MoreVertIcon fontSize="small" />
-      </IconButton>
-      <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={handleMenuClose}>
-        <MenuItem onClick={handleRemove}>
-          <ListItemIcon>
-            <DeleteIcon fontSize="small" color="error" />
-          </ListItemIcon>
-          <ListItemText>{t("remove")}</ListItemText>
-        </MenuItem>
-      </Menu>
+      {showColorPicker ? (
+        <WidgetColorPicker compact color={item.color} onChange={(color) => onColorChange(item.value, color)} />
+      ) : null}
+      <Stack sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+          {item.label}
+        </Typography>
+      </Stack>
+      <MoreMenu
+        disablePortal={false}
+        menuItems={menuItems}
+        menuButton={
+          <Tooltip title={t("more_options")} placement="top">
+            <IconButton size="small" sx={{ px: 0.5 }} ref={actionButtonRef}>
+              <Icon iconName={ICON_NAME.MORE_VERT} style={{ fontSize: "15px" }} />
+            </IconButton>
+          </Tooltip>
+        }
+        onSelect={(menuItem: PopperMenuItem) => {
+          if (menuItem.id === "rename") {
+            handleStartRename();
+          } else if (menuItem.id === "remove") {
+            handleRemove();
+          }
+        }}
+      />
+      <Popover
+        open={renameOpen}
+        anchorEl={renameAnchorEl}
+        onClose={handleRenameCancel}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}>
+        <Stack spacing={1.5} sx={{ p: 1.5, width: 280 }}>
+          <Typography variant="caption" color="text.secondary">
+            {`${t("value")}: ${item.value}`}
+          </Typography>
+          <TextField
+            size="small"
+            value={draftLabel}
+            onChange={(event) => setDraftLabel(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                handleRenameSave();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                handleRenameCancel();
+              }
+            }}
+            autoFocus
+            fullWidth
+          />
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button size="small" onClick={handleRenameCancel} variant="text" sx={{ borderRadius: 0 }}>
+              <Typography variant="body2" fontWeight="bold">
+                {t("cancel")}
+              </Typography>
+            </Button>
+            <Button
+              size="small"
+              variant="text"
+              color="primary"
+              onClick={handleRenameSave}
+              sx={{ borderRadius: 0 }}>
+              <Typography variant="body2" fontWeight="bold" color="inherit">
+                {t("rename")}
+              </Typography>
+            </Button>
+          </Stack>
+        </Stack>
+      </Popover>
     </Stack>
   );
 };
@@ -132,15 +225,23 @@ export interface CategoryColorConfigProps {
   customOrder: string[] | undefined;
   /** Color map: array of [category_value, hex_color] tuples */
   colorMap: [string, string][] | undefined;
+  /** Label map: array of [category_value, display_label] tuples */
+  labelMap?: [string, string][];
   /** Full color range object for palette selection */
   colorRange?: ColorRange;
   /** Color palette for generating default colors (extracted from colorRange.colors) */
   colorPalette?: string[];
-  /** Combined callback for updating both order and color_map atomically */
-  onChange: (order: string[], colorMap: [string, string][]) => void;
-  /** Callback when palette changes - receives new colorRange and regenerated colorMap */
-  onPaletteChange?: (colorRange: ColorRange, order: string[], colorMap: [string, string][]) => void;
+  /** Combined callback for updating order, color_map and label_map atomically */
+  onChange: (order: string[], colorMap: [string, string][], labelMap: [string, string][]) => void;
+  /** Callback when palette changes - receives new colorRange and regenerated mappings */
+  onPaletteChange?: (
+    colorRange: ColorRange,
+    order: string[],
+    colorMap: [string, string][],
+    labelMap: [string, string][]
+  ) => void;
   cqlFilter?: object;
+  showColorPicker?: boolean;
 }
 
 /**
@@ -152,11 +253,13 @@ const CategoryColorConfig = ({
   fieldName,
   customOrder,
   colorMap,
+  labelMap,
   colorRange,
   colorPalette = DEFAULT_PALETTE,
   onChange,
   onPaletteChange,
   cqlFilter,
+  showColorPicker = true,
 }: CategoryColorConfigProps) => {
   const { t } = useTranslation("common");
   const theme = useTheme();
@@ -210,16 +313,26 @@ const CategoryColorConfig = ({
     return lookup;
   }, [colorMap]);
 
+  // Build label map lookup
+  const labelMapLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    labelMap?.forEach(([value, label]) => {
+      lookup.set(value, label);
+    });
+    return lookup;
+  }, [labelMap]);
+
   // Currently visible items with their colors
   const currentItems = useMemo((): ColorMapEntry[] => {
-    const order = customOrder && customOrder.length > 0 ? customOrder : allValues;
+    const order = customOrder === undefined ? allValues : customOrder;
     const validOrder = order.filter((v) => allValues.includes(v));
 
     return validOrder.map((value, index) => ({
       value,
       color: colorMapLookup.get(value) || generateColor(index, validOrder.length),
+      label: labelMapLookup.get(value) || value,
     }));
-  }, [customOrder, allValues, colorMapLookup, generateColor]);
+  }, [customOrder, allValues, colorMapLookup, labelMapLookup, generateColor]);
 
   // Items that can be added (not currently visible)
   const availableToAdd = useMemo(() => {
@@ -238,7 +351,14 @@ const CategoryColorConfig = ({
   const updateBoth = (newItems: ColorMapEntry[]) => {
     const newOrder = newItems.map((item) => item.value);
     const newColorMap: [string, string][] = newItems.map((item) => [item.value, item.color]);
-    onChange(newOrder, newColorMap);
+    const newLabelMap: [string, string][] = newItems.reduce<[string, string][]>((acc, item) => {
+      const trimmedLabel = item.label.trim();
+      if (trimmedLabel && trimmedLabel !== item.value) {
+        acc.push([item.value, trimmedLabel]);
+      }
+      return acc;
+    }, []);
+    onChange(newOrder, newColorMap, newLabelMap);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -263,12 +383,17 @@ const CategoryColorConfig = ({
     updateBoth(newItems);
   };
 
+  const handleLabelChange = (value: string, label: string) => {
+    const newItems = currentItems.map((item) => (item.value === value ? { ...item, label } : item));
+    updateBoth(newItems);
+  };
+
   const handleAddItem = (item: SelectorItem | SelectorItem[] | undefined) => {
     if (item && !Array.isArray(item) && item.value) {
       const value = item.value as string;
       if (!currentItems.find((i) => i.value === value)) {
         const newColor = generateColor(currentItems.length, currentItems.length + 1);
-        const newItems = [...currentItems, { value, color: newColor }];
+        const newItems = [...currentItems, { value, color: newColor, label: value }];
         updateBoth(newItems);
       }
     }
@@ -278,6 +403,7 @@ const CategoryColorConfig = ({
     const newItems = allValues.map((value, index) => ({
       value,
       color: colorMapLookup.get(value) || generateColor(index, allValues.length),
+      label: labelMapLookup.get(value) || value,
     }));
     updateBoth(newItems);
   };
@@ -307,16 +433,28 @@ const CategoryColorConfig = ({
   // Generate display colors matching the number of categories
   // Must be defined before early returns to maintain consistent hook order
   const displayColors = useMemo(() => {
+    if (currentItems.length > 0) {
+      return currentItems.map((item) => item.color);
+    }
+
     if (categoryCount <= colorPalette.length) {
       return colorPalette.slice(0, categoryCount);
     }
     return chroma.scale(colorPalette).mode("lch").colors(categoryCount);
-  }, [colorPalette, categoryCount]);
+  }, [currentItems, colorPalette, categoryCount]);
 
   // Create an adjusted color range for the ColorRangeSelector with the correct number of steps
   // This ensures the palette picker shows palettes with the right number of colors
   const adjustedColorRange = useMemo((): ColorRange => {
     const baseRange = colorRange || DEFAULT_COLOR_RANGE;
+    const currentItemColors = currentItems.map((item) => item.color);
+
+    if (currentItemColors.length > 0) {
+      return {
+        ...baseRange,
+        colors: currentItemColors,
+      };
+    }
 
     // If current palette already has the right number of colors, use it
     if (baseRange.colors.length === categoryCount) {
@@ -363,7 +501,7 @@ const CategoryColorConfig = ({
       ...baseRange,
       colors: chroma.scale(baseRange.colors).mode("lch").colors(categoryCount),
     };
-  }, [colorRange, categoryCount]);
+  }, [colorRange, categoryCount, currentItems]);
 
   const handlePaletteSelect = useCallback(
     (newColorRange: ColorRange) => {
@@ -384,10 +522,17 @@ const CategoryColorConfig = ({
       // Build the new order and colorMap
       const newOrder = newItems.map((item) => item.value);
       const newColorMap: [string, string][] = newItems.map((item) => [item.value, item.color]);
+      const newLabelMap: [string, string][] = newItems.reduce<[string, string][]>((acc, item) => {
+        const trimmedLabel = item.label.trim();
+        if (trimmedLabel && trimmedLabel !== item.value) {
+          acc.push([item.value, trimmedLabel]);
+        }
+        return acc;
+      }, []);
 
       // Call the combined callback with all data for atomic update
       if (onPaletteChange) {
-        onPaletteChange(newColorRange, newOrder, newColorMap);
+        onPaletteChange(newColorRange, newOrder, newColorMap, newLabelMap);
       }
       setPaletteOpen(false);
     },
@@ -548,6 +693,8 @@ const CategoryColorConfig = ({
                   item={item}
                   onRemove={handleRemoveItem}
                   onColorChange={handleColorChange}
+                  onLabelChange={handleLabelChange}
+                  showColorPicker={showColorPicker}
                 />
               ))}
             </Stack>

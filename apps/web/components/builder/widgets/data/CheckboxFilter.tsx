@@ -16,6 +16,7 @@ interface CheckboxFilterProps {
   customOrder?: string[];
   cqlFilter?: object;
   color?: string;
+  labelMap?: [string, string][];
 }
 
 const CheckboxFilter = ({
@@ -28,6 +29,7 @@ const CheckboxFilter = ({
   customOrder,
   cqlFilter,
   color = "#0e58ff",
+  labelMap,
 }: CheckboxFilterProps) => {
   const theme = useTheme();
   const { t } = useTranslation("common");
@@ -46,6 +48,14 @@ const CheckboxFilter = ({
   }, [allValues, showAll, minVisibleOptions]);
 
   const hiddenCount = allValues.length - minVisibleOptions;
+
+  const labelMapLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    labelMap?.forEach(([value, label]) => {
+      lookup.set(value, label);
+    });
+    return lookup;
+  }, [labelMap]);
 
   const handleCheckboxChange = (value: string, checked: boolean) => {
     if (multiple) {
@@ -152,7 +162,7 @@ const CheckboxFilter = ({
               }
               label={
                 <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                  {value}
+                  {labelMapLookup.get(value) || value}
                 </Typography>
               }
               sx={{

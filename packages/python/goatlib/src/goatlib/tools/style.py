@@ -282,7 +282,7 @@ def interpolate_colors(colors: list[str], num_colors: int) -> list[str]:
 def build_ordinal_color_map(
     values: list[int | float | str],
     palette: str | list[str] = "OrRd",
-) -> tuple[list[str], list[list]]:
+) -> tuple[list[str], list[list[Any]]]:
     """Build an ordinal color map for a list of discrete values.
 
     Creates a mapping from values to colors, interpolating the palette
@@ -528,7 +528,7 @@ def get_heatmap_style(
 
 
 # ÖV-Güteklassen style configuration
-OEV_GUETEKLASSEN_COLOR_MAP = {
+OEV_GUETEKLASSEN_BASE_COLOR_MAP = {
     "A": "#199741",  # Dark green - best quality
     "B": "#8BCC62",  # Light green
     "C": "#DCF09E",  # Yellow-green
@@ -536,22 +536,63 @@ OEV_GUETEKLASSEN_COLOR_MAP = {
     "E": "#F69053",  # Orange
     "F": "#E4696A",  # Red - worst quality
 }
+OEV_GUETEKLASSEN_DEFAULT_CLASS_COUNT = len(OEV_GUETEKLASSEN_BASE_COLOR_MAP)
 
 
-def get_oev_gueteklassen_style() -> dict[str, Any]:
+def _int_to_alpha_label(value: int) -> str:
+    """Convert a 1-based integer to an alphabetical label (A, ..., Z, AA, ...)."""
+    result = ""
+    remainder = value
+    while remainder > 0:
+        remainder -= 1
+        result = chr(65 + (remainder % 26)) + result
+        remainder //= 26
+    return result
+
+
+def _generate_oev_class_labels(class_count: int) -> list[str]:
+    """Generate sequential alphabetical class labels for PT classes."""
+    return [_int_to_alpha_label(i) for i in range(1, class_count + 1)]
+
+
+def _build_oev_gueteklassen_color_map(class_labels: list[str]) -> dict[str, str]:
+    """Build label->color mapping, preserving legacy A-F colors and extending beyond F."""
+    color_map = OEV_GUETEKLASSEN_BASE_COLOR_MAP.copy()
+
+    additional_labels = [
+        label for label in class_labels if label not in OEV_GUETEKLASSEN_BASE_COLOR_MAP
+    ]
+
+    if additional_labels:
+        additional_colors = interpolate_colors(
+            [OEV_GUETEKLASSEN_BASE_COLOR_MAP["F"], "#9e0142"],
+            len(additional_labels) + 1,
+        )[1:]
+        color_map.update(dict(zip(additional_labels, additional_colors, strict=True)))
+
+    return {label: color_map[label] for label in class_labels}
+
+
+def get_oev_gueteklassen_style(
+    class_count: int = OEV_GUETEKLASSEN_DEFAULT_CLASS_COUNT,
+) -> dict[str, Any]:
     """Generate style for ÖV-Güteklassen (PT quality classes) output.
 
-    Uses ordinal color scale with A-F categories representing
-    public transport accessibility quality from best (A) to worst (F).
+    Uses ordinal color scale with alphabetical categories representing
+    public transport accessibility quality from best (A) to worst (later labels).
+    Keeps legacy A-F colors and extends with darker red shades for additional classes.
+
+    Args:
+        class_count: Number of quality classes to include in the ordinal style.
 
     Returns:
         Style dict configured for ÖV-Güteklassen visualization
     """
-    colors = list(OEV_GUETEKLASSEN_COLOR_MAP.values())
-    color_map = [
-        [[class_name], color]
-        for class_name, color in OEV_GUETEKLASSEN_COLOR_MAP.items()
-    ]
+    normalized_class_count = max(1, class_count)
+    class_labels = _generate_oev_class_labels(normalized_class_count)
+    class_color_map = _build_oev_gueteklassen_color_map(class_labels)
+    colors = list(class_color_map.values())
+    color_map = [[[class_name], color] for class_name, color in class_color_map.items()]
 
     return {
         **DEFAULT_POLYGON_STYLE,

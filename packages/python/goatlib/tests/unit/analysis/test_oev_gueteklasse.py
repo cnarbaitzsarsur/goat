@@ -182,6 +182,152 @@ class TestOevGueteklasseStationConfig:
         assert custom_config.groups["3"] == "C"
         assert len(custom_config.time_frequency) == 3
 
+    def test_standard_route_type_mapping_expands_to_extended(self):
+        """Standard GTFS route type mappings should auto-populate known extended route types."""
+        custom_config = OevGueteklasseStationConfig(
+            groups={"0": "B", "1": "A", "2": "A", "3": "C", "7": "B"},
+            time_frequency=[10],
+            categories=[{"A": 1, "B": 1, "C": 2}],
+            classification={
+                "1": {300: "1"},
+                "2": {300: "2"},
+            },
+        )
+
+        assert custom_config.groups["900"] == "B"
+        assert custom_config.groups["901"] == "B"
+        assert custom_config.groups["401"] == "A"
+        assert custom_config.groups["100"] == "A"
+        assert custom_config.groups["701"] == "C"
+        assert custom_config.groups["1400"] == "B"
+
+    def test_invalid_time_frequency_not_increasing(self):
+        """Reject non-increasing time_frequency values."""
+        with pytest.raises(ValueError, match="time_frequency must be strictly increasing"):
+            OevGueteklasseStationConfig(
+                groups={"3": "C"},
+                time_frequency=[10, 10, 30],
+                categories=[{"C": 1}, {"C": 2}, {"C": 3}],
+                classification={
+                    "1": {300: "1"},
+                    "2": {300: "2"},
+                    "3": {300: "3"},
+                },
+            )
+
+    def test_invalid_categories_length(self):
+        """Reject config when category rows and thresholds have different length."""
+        with pytest.raises(
+            ValueError, match="categories length must match time_frequency length"
+        ):
+            OevGueteklasseStationConfig(
+                groups={"3": "C"},
+                time_frequency=[10, 30, 60],
+                categories=[{"C": 1}, {"C": 2}],
+                classification={
+                    "1": {300: "1"},
+                    "2": {300: "2"},
+                },
+            )
+
+    def test_invalid_missing_classification_category(self):
+        """Reject config when used station categories are missing in classification."""
+        with pytest.raises(
+            ValueError,
+            match="classification is missing station categories used in categories",
+        ):
+            OevGueteklasseStationConfig(
+                groups={"3": "C"},
+                time_frequency=[10, 30],
+                categories=[{"C": 1}, {"C": 2}],
+                classification={
+                    "1": {300: "1"},
+                },
+            )
+
+    def test_invalid_classification_class_non_positive(self):
+        """Reject PT classes that are not positive integer strings."""
+        with pytest.raises(
+            ValueError,
+            match="classification PT class values must be positive integer strings",
+        ):
+            OevGueteklasseStationConfig(
+                groups={"3": "C"},
+                time_frequency=[10],
+                categories=[{"C": 1}],
+                classification={
+                    "1": {300: "0"},
+                },
+            )
+
+    def test_valid_classification_class_above_f(self):
+        """Allow PT classes above 6 to support extended class letters beyond F."""
+        config = OevGueteklasseStationConfig(
+            groups={"3": "C"},
+            time_frequency=[10],
+            categories=[{"C": 1}],
+            classification={
+                "1": {300: "7"},
+            },
+        )
+        assert config.classification["1"][300] == "7"
+
+
+class TestOevGueteklasseFrequencyIntervals:
+    """Tests for frequency-to-interval mapping behavior."""
+
+    def test_frequency_equal_threshold_maps_to_matching_interval(self):
+        """Frequency exactly on threshold should map to that threshold interval (<=)."""
+        config = OevGueteklasseStationConfig(
+            groups={"3": "C"},
+            time_frequency=[5, 10, 20],
+            categories=[
+                {"C": 1},
+                {"C": 2},
+                {"C": 3},
+            ],
+            classification={
+                "1": {300: "1"},
+                "2": {300: "2"},
+                "3": {300: "3"},
+            },
+        )
+        time_window = PTTimeWindow(
+            weekday="weekday",
+            from_time=0,
+            to_time=7200,
+        )
+
+        tool = OevGueteklasseTool()
+        try:
+            tool.con.execute("""
+                CREATE OR REPLACE TABLE station_trip_counts AS
+                SELECT
+                    'stop_1' AS stop_id,
+                    'Stop 1' AS stop_name,
+                    NULL::VARCHAR AS parent_station,
+                    48.1::DOUBLE AS stop_lat,
+                    11.5::DOUBLE AS stop_lon,
+                    ST_Point(11.5, 48.1) AS geom,
+                    3::INTEGER AS route_type,
+                    12::INTEGER AS trip_count
+            """)
+
+            tool._calculate_station_categories(config, time_window)
+            row = tool.con.execute("""
+                SELECT time_interval, station_category, frequency_minutes
+                FROM station_categories
+                WHERE stop_id = 'stop_1'
+            """).fetchone()
+
+            assert row is not None
+            time_interval, station_category, frequency_minutes = row
+            assert frequency_minutes == pytest.approx(10.0)
+            assert time_interval == 2
+            assert station_category == 2
+        finally:
+            tool.cleanup()
+
 
 # =============================================================================
 # Integration Tests - OevGueteklasseTool
@@ -235,7 +381,7 @@ class TestOevGueteklasseTool:
         df = con.execute(f"SELECT * FROM '{output_path}'").fetchdf()
         assert "pt_class" in df.columns
         assert "pt_class_label" in df.columns
-        assert "geom" in df.columns
+        assert "geometry" in df.columns
 
         # pt_class should be 1-6
         assert df["pt_class"].min() >= 1
@@ -249,8 +395,8 @@ class TestOevGueteklasseTool:
         geom_check = con.execute(f"""
             SELECT 
                 pt_class_label,
-                ST_GeometryType(geom) as geom_type,
-                ST_IsValid(geom) as is_valid
+                ST_GeometryType(geometry) as geom_type,
+                ST_IsValid(geometry) as is_valid
             FROM '{output_path}'
         """).fetchall()
         for label, geom_type, is_valid in geom_check:
@@ -348,6 +494,7 @@ class TestOevGueteklasseTool:
                 "4": {400: "4", 800: "5"},
                 "5": {400: "5", 800: "6"},
                 "6": {400: "6"},
+                "7": {400: "6"},
             },
         )
 

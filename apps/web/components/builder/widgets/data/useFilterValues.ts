@@ -6,8 +6,8 @@ import { normalizeValue } from "@/lib/utils/normalize-value";
 export const MAX_FILTER_VALUES = 20;
 
 interface UseFilterValuesParams {
-  layerId: string;
-  fieldName: string;
+  layerId?: string;
+  fieldName?: string;
   customOrder?: string[];
   cqlFilter?: object;
 }
@@ -26,7 +26,11 @@ export const useFilterValues = ({ layerId, fieldName, customOrder, cqlFilter }: 
     [cqlFilterString]
   );
 
-  const { data, isLoading } = useLayerUniqueValues(layerId, fieldName, queryParams);
+  const { data, isLoading } = useLayerUniqueValues(
+    layerId || "",
+    fieldName || "",
+    layerId && fieldName ? queryParams : undefined
+  );
 
   // Check if there are more values than the limit
   const totalValuesCount = data?.items?.length || 0;

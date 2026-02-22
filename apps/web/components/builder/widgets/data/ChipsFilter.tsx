@@ -15,6 +15,7 @@ interface ChipsFilterProps {
   customOrder?: string[];
   cqlFilter?: object;
   color?: string;
+  labelMap?: [string, string][];
 }
 
 const ChipsFilter = ({
@@ -28,6 +29,7 @@ const ChipsFilter = ({
   customOrder,
   cqlFilter,
   color = "#0e58ff",
+  labelMap,
 }: ChipsFilterProps) => {
   const theme = useTheme();
   const { t } = useTranslation("common");
@@ -46,6 +48,14 @@ const ChipsFilter = ({
   }, [allValues, showAll, minVisibleOptions]);
 
   const hiddenCount = allValues.length - minVisibleOptions;
+
+  const labelMapLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    labelMap?.forEach(([value, label]) => {
+      lookup.set(value, label);
+    });
+    return lookup;
+  }, [labelMap]);
 
   const handleChipClick = (value: string) => {
     const isSelected = selectedValues.includes(value);
@@ -108,7 +118,7 @@ const ChipsFilter = ({
           return (
             <Chip
               key={value}
-              label={value}
+              label={labelMapLookup.get(value) || value}
               size="small"
               clickable
               onClick={() => handleChipClick(value)}

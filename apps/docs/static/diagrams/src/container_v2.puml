@@ -35,29 +35,31 @@ System_Boundary(s1, "Authorization"){
 System_Boundary(a2, "GOAT Application"){
     Container(applicationapi, "GOAT Core API", "Python and FastAPI", "Bundles GOAT-specific analyses and interacts with content metadata.", $sprite="python")
     Container(geoapi, "GEO API", "Python and FastAPI", "Provides geoservices: OGC Features and Vector tiles.", $sprite="python")
+    Container(processesapi, "Processes API", "Python and FastAPI", "Provides OGC API Processes interface for analytics.", $sprite="python")
 
     ContainerDb(applicationdb, "Application Database", "PostgreSQL", "Holds application-specific base data, user accounts, and subscriptions.", $sprite="postgresql")
 
     Container(r5, "Routing API PT", "Java and R5", "Java engine handling travel-time calculation logic for public transport (PT).", $sprite="java")
     Container(goatrouting, "Routing API Car/Walking/Cycling", "Python and FastAPI", "Python engine using Numba for travel-time calculation (car, walking, cycling).", $sprite="python")
+
+    Container(workflow, "Workflow Engine", "Windmill", "Orchestrates and executes background analysis jobs.", $sprite="python")
+    ContainerDb(ducklake, "Analysis Database", "DuckDB (DuckLake)", "High-performance analytical database for user layers and analysis results.", $sprite="file")
 }
 
 ' Relations
 Rel(auth, authdb, "Reads/Writes", "JDBC")
-Rel(author, applicationdb, "Reads/Writes", "SQLAlchemy")
 Rel(applicationapi, applicationdb, "Reads/Writes", "SQLAlchemy")
-Rel(geoapi, applicationdb, "Reads", "SQLAlchemy")
 
-Rel_L(s1, a1, "")
-Rel_L(a1, s1, "")
+Rel(processesapi, workflow, "Triggers", "HTTP")
+Rel(geoapi, ducklake, "Reads/Writes", "DuckDB API")
+Rel(workflow, ducklake, "Reads/Writes", "DuckDB API")
 
-Rel(applicationapi, r5, "HTTP (Private)")
-Rel(applicationapi, goatrouting, "HTTP (Private)")
+Rel(workflow, r5, "HTTP (Private)")
+Rel(workflow, goatrouting, "HTTP (Private)")
 
 Rel(user, c1, "")
 Rel(c1, a1, "")
-Rel(c1, s1, "")
-Rel_L(s1, a2, "")
-Rel_R(a2, s1, "")
+Rel(c1, a2, "Uses", "HTTPS")
+Rel(author, a2, "Secures")
 
 @enduml

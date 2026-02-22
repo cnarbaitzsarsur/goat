@@ -1,17 +1,17 @@
-import { Box, Typography } from "@mui/material";
+import { Box } from "@mui/material";
 import chroma from "chroma-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Cell, Label, Pie, PieChart, ResponsiveContainer } from "recharts";
+import { Cell, Label, Legend, Pie, PieChart, ResponsiveContainer } from "recharts";
 
-import { useLayerUniqueValues } from "@/lib/api/layers";
 import { useProjectLayerAggregationStats } from "@/lib/api/projects";
 import { formatNumber } from "@/lib/utils/format-number";
 import { normalizeValue } from "@/lib/utils/normalize-value";
 import type { AggregationStatsQueryParams } from "@/lib/validations/project";
 import { aggregationStatsQueryParams } from "@/lib/validations/project";
+import type { ColorRange } from "@/lib/validations/layer";
 import type { PieChartSchema } from "@/lib/validations/widget";
-import { pieChartConfigSchema } from "@/lib/validations/widget";
+import { pieChartConfigSchema, pieLayoutTypes } from "@/lib/validations/widget";
 
 import { useChartWidget } from "@/hooks/map/DashboardBuilderHooks";
 
@@ -29,42 +29,28 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     aggregationStatsQueryParams
   );
 
+  const effectiveQueryParams = useMemo(() => {
+    if (!queryParams) return queryParams;
+
+    const customOrder = config?.setup?.custom_order;
+    if (customOrder === undefined) {
+      return queryParams;
+    }
+
+    if (customOrder.length === 0) {
+      return queryParams;
+    }
+
+    return {
+      ...queryParams,
+      size: Math.max(5000, customOrder.length),
+    } as AggregationStatsQueryParams;
+  }, [queryParams, config?.setup?.custom_order]);
+
   const { aggregationStats, isLoading, isError } = useProjectLayerAggregationStats(
     layerId,
-    queryParams as AggregationStatsQueryParams
+    effectiveQueryParams as AggregationStatsQueryParams
   );
-
-  // Context label: fetch unique values for the configured field
-  const contextLabelConfig = config?.options?.context_label;
-  const contextLabelQueryParams = useMemo(() => {
-    if (!contextLabelConfig?.field) return undefined;
-    return {
-      size: 1, // Only fetch 1 item - we use 'total' to check if there's exactly 1 unique value
-      page: 1,
-      order: "descendent" as const,
-      ...(queryParams?.query ? { query: queryParams.query } : {}),
-    };
-  }, [contextLabelConfig?.field, queryParams?.query]);
-
-  const { data: contextLabelData } = useLayerUniqueValues(
-    contextLabelConfig?.field ? layerId || "" : "",
-    contextLabelConfig?.field || "",
-    contextLabelQueryParams
-  );
-
-  // Determine the context label value
-  const contextLabelValue = useMemo(() => {
-    if (!contextLabelConfig) return null;
-    if (!contextLabelData) return null;
-
-    // Use total count to determine if there's exactly 1 unique value
-    if (contextLabelData.total === 1 && contextLabelData.items?.length === 1) {
-      // Single unique value - show it
-      return String(contextLabelData.items[0].value);
-    }
-    // Multiple values - show default (or null if not set)
-    return contextLabelConfig.default_value || null;
-  }, [contextLabelConfig, contextLabelData]);
 
   const originalData = useMemo(() => aggregationStats?.items || [], [aggregationStats]);
 
@@ -73,8 +59,13 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     if (!originalData.length) return originalData;
 
     const customOrder = config?.setup?.custom_order;
-    if (!customOrder || customOrder.length === 0) {
+
+    if (customOrder === undefined) {
       return originalData;
+    }
+
+    if (customOrder.length === 0) {
+      return [];
     }
 
     // Sort by custom order - items in customOrder come first in that order,
@@ -91,6 +82,17 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
   }, [originalData, config?.setup?.custom_order]);
 
   const data = orderedData;
+  const pieLayout = config?.options?.layout || pieLayoutTypes.Values.center_active;
+  const isCenterActiveLayout = pieLayout === pieLayoutTypes.Values.center_active;
+  const isAllLabelsOutsideLayout = pieLayout === pieLayoutTypes.Values.all_labels_outside;
+  const isLegendLayout = pieLayout === pieLayoutTypes.Values.legend;
+  const chartMargin = {
+    top: 8,
+    right: isAllLabelsOutsideLayout ? 24 : 8,
+    left: isAllLabelsOutsideLayout ? 24 : 8,
+    bottom: isLegendLayout ? 48 : 12,
+  };
+
   const displayData = useMemo(() => {
     return data.length > 0 ? data : [{ grouped_value: t("no_data"), operation_value: 1 }];
   }, [data, t]);
@@ -134,6 +136,25 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
     return lookup;
   }, [config?.options?.color_map]);
 
+  const labelMapLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    config?.options?.label_map?.forEach(([value, label]) => {
+      lookup.set(normalizeValue(value), label);
+    });
+    return lookup;
+  }, [config?.options?.label_map]);
+
+  const getDisplayLabel = useCallback(
+    (groupedValue: string) => {
+      return labelMapLookup.get(normalizeValue(groupedValue)) || groupedValue;
+    },
+    [labelMapLookup]
+  );
+
+  const truncateLabel = useCallback((value: string, maxLength = 16) => {
+    return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+  }, []);
+
   const baseColors = useMemo(() => {
     if (displayData.length === 0) return [];
 
@@ -143,19 +164,19 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
         const mappedColor = colorMapLookup.get(normalizeValue(item.grouped_value));
         if (mappedColor) return mappedColor;
         // Fallback for items not in color_map
-        const palette = config?.options?.color_range?.colors || FALLBACK_COLORS;
+        const palette = (config?.options?.color_range as ColorRange | undefined)?.colors || FALLBACK_COLORS;
         const colors = chroma.scale(palette).mode("lch").colors(displayData.length);
         return colors[index];
       });
     }
 
     // Default behavior: generate from color_range
-    const palette = data.length > 0 ? config?.options?.color_range?.colors || FALLBACK_COLORS : ["#e0e0e0"];
+    const palette = data.length > 0 ? (config?.options?.color_range as ColorRange | undefined)?.colors || FALLBACK_COLORS : ["#e0e0e0"];
 
     return displayData.length === 1
       ? [palette[0]]
       : chroma.scale(palette).mode("lch").colors(displayData.length);
-  }, [displayData, data.length, config?.options?.color_range?.colors, colorMapLookup]);
+  }, [displayData, data.length, (config?.options?.color_range as ColorRange | undefined)?.colors, colorMapLookup]);
 
   const computedColors = useMemo(() => {
     return displayData.map((item, index) => {
@@ -171,6 +192,22 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
         : baseColor;
     });
   }, [displayData, baseColors, selectedValues, data.length, isHovering]);
+
+  const labelColorLookup = useMemo(() => {
+    const lookup = new Map<string, string>();
+    displayData.forEach((item, index) => {
+      lookup.set(normalizeValue(item.grouped_value), baseColors[index % baseColors.length]);
+    });
+    return lookup;
+  }, [displayData, baseColors]);
+
+  const piePaddingAngle = useMemo(() => {
+    if (data.length === 0) return 0;
+    if (data.length <= 5) return 3;
+    if (data.length <= 10) return 2;
+    if (data.length <= 20) return 1;
+    return 0;
+  }, [data.length]);
 
   useEffect(() => {
     const newIndex = calculateDefaultActiveIndex();
@@ -207,24 +244,9 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
 
       {config && !isError && aggregationStats && isChartConfigured && (
         <Box sx={{ position: "relative", width: "100%" }}>
-          {contextLabelValue && (
-            <Typography
-              variant="caption"
-              sx={{
-                position: "absolute",
-                top: 4,
-                left: 0,
-                right: 0,
-                textAlign: "center",
-                fontWeight: 600,
-                color: "text.secondary",
-                zIndex: 1,
-              }}>
-              {contextLabelValue}
-            </Typography>
-          )}
-          <ResponsiveContainer width="100%" aspect={1.2}>
+          <ResponsiveContainer width="100%" aspect={isAllLabelsOutsideLayout ? 1.35 : 1.2}>
             <PieChart
+              margin={chartMargin}
               onMouseEnter={() => handleChartHover(true)}
               onMouseLeave={() => handleChartHover(false)}>
               <Pie
@@ -237,37 +259,92 @@ export const PieChartWidget = ({ config: rawConfig }: { config: PieChartSchema }
                 dataKey="operation_value"
                 nameKey="grouped_value"
                 cx="50%"
-                cy="50%"
-                innerRadius="65%"
+                cy={isLegendLayout ? "44%" : isAllLabelsOutsideLayout ? "46%" : "50%"}
+                innerRadius={isAllLabelsOutsideLayout ? "50%" : "65%"}
+                outerRadius={isAllLabelsOutsideLayout ? "68%" : undefined}
                 cursor="pointer"
                 isAnimationActive={false}
-                paddingAngle={data.length > 0 ? 5 : 0}
-                onMouseEnter={handlePieEnter}>
+                paddingAngle={piePaddingAngle}
+                onMouseEnter={handlePieEnter}
+                labelLine={isAllLabelsOutsideLayout && data.length > 0}
+                label={
+                  isAllLabelsOutsideLayout && data.length > 0
+                    ? ({
+                        x,
+                        y,
+                        textAnchor,
+                        percent,
+                        payload,
+                      }: {
+                        x?: number;
+                        y?: number;
+                        textAnchor?: "start" | "middle" | "end";
+                        percent?: number;
+                        payload?: { grouped_value?: string };
+                      }) => {
+                        const groupedValue = payload?.grouped_value || "";
+                        const label = getDisplayLabel(groupedValue);
+                        const shortLabel = truncateLabel(label, 22);
+                        const percentLabel = formatNumber(percent || 0, "percent_1d", i18n.language);
+                        const labelColor =
+                          labelColorLookup.get(normalizeValue(groupedValue)) ||
+                          baseColors[0] ||
+                          "currentColor";
+                        return (
+                          <text
+                            x={x}
+                            y={y}
+                            textAnchor={textAnchor}
+                            dominantBaseline="central"
+                            fontSize={11}
+                            fill={labelColor}>
+                            <tspan x={x} dy="0">{shortLabel}</tspan>
+                            <tspan x={x} dy="1.1em">{percentLabel}</tspan>
+                          </text>
+                        );
+                      }
+                    : false
+                }>
                 {displayData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={computedColors[index]} stroke="none" />
                 ))}
 
-                <Label
-                  value={`${formatNumber(
-                    displayData[activeIndex].operation_value / totalOperationValue,
-                    "percent_1d",
-                    i18n.language
-                  )}`}
-                  position="centerBottom"
-                  fontSize={14}
-                  fontWeight="bold"
-                  fill={baseColors[activeIndex % baseColors.length]}
-                />
+                {isCenterActiveLayout && (
+                  <>
+                    <Label
+                      value={`${formatNumber(
+                        displayData[activeIndex].operation_value / totalOperationValue,
+                        "percent_1d",
+                        i18n.language
+                      )}`}
+                      position="centerBottom"
+                      fontSize={13}
+                      fontWeight="bold"
+                      fill={baseColors[activeIndex % baseColors.length]}
+                    />
 
-                <Label
-                  value={displayData[activeIndex].grouped_value}
-                  position="centerTop"
-                  fontSize={12}
-                  dy={8}
-                  fontWeight="bold"
-                  fill={baseColors[activeIndex % baseColors.length]}
-                />
+                    <Label
+                      value={getDisplayLabel(displayData[activeIndex].grouped_value)}
+                      position="centerTop"
+                      fontSize={11}
+                      dy={8}
+                      fontWeight="bold"
+                      fill={baseColors[activeIndex % baseColors.length]}
+                    />
+                  </>
+                )}
               </Pie>
+              {isLegendLayout && (
+                <Legend
+                  layout="horizontal"
+                  verticalAlign="bottom"
+                  align="center"
+                  iconSize={10}
+                  formatter={(value) => (
+                    <span style={{ fontSize: 11 }}>{truncateLabel(getDisplayLabel(String(value)), 16)}</span>
+                  )}
+                />
+              )}
             </PieChart>
           </ResponsiveContainer>
         </Box>

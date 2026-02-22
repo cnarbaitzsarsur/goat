@@ -207,6 +207,18 @@ const MobileProjectLayout = ({
     }
   }, [activeRightPanel, activeLayer, layerInfo]);
 
+  useEffect(() => {
+    const isLayerSettingsPanel =
+      activeRightPanel === MapSidebarItemID.PROPERTIES || activeRightPanel === MapSidebarItemID.STYLE;
+
+    if (drawerView === "layerSettings" && (!activeLayer || !isLayerSettingsPanel)) {
+      if (activeRightPanel) {
+        dispatch(setActiveRightPanel(undefined));
+      }
+      setDrawerView("default");
+    }
+  }, [drawerView, activeLayer, activeRightPanel, dispatch]);
+
   // --- Handlers ---
   const toggleDrawer = (newOpen: boolean) => () => {
     setOpen(newOpen);

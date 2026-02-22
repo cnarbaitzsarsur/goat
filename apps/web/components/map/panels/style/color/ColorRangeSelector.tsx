@@ -20,7 +20,7 @@
 import { MenuItem, Select, Stack, Switch, Tooltip, Typography } from "@mui/material";
 // eslint-disable-next-line you-dont-need-lodash-underscore/uniq
 import uniq from "lodash.uniq";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { COLOR_RANGES } from "@/lib/constants/color";
@@ -34,6 +34,7 @@ type ColorRangeSelectorProps = {
   selectedColorRange: ColorRange;
   onSelectColorRange: (p: ColorRange) => void;
   scaleType?: string;
+  maxSteps?: number;
   setIsBusy?: (p: boolean) => void;
   setIsOpen?: (p: boolean) => void;
 };
@@ -142,14 +143,58 @@ const ColorRangeSelector = (props: ColorRangeSelectorProps) => {
     custom: selectedColorRange.type === "custom",
   });
 
+  const availableSteps = useMemo(() => {
+    const maxSteps = props.maxSteps;
+    if (typeof maxSteps !== "number") {
+      return ALL_STEPS;
+    }
+
+    const limitedSteps = ALL_STEPS.filter((step) => step <= maxSteps);
+    return limitedSteps.length > 0 ? limitedSteps : [ALL_STEPS[0]];
+  }, [props.maxSteps]);
+
+  useEffect(() => {
+    const currentSteps = Number(colorRangeConfig.steps);
+    if (availableSteps.includes(currentSteps)) {
+      return;
+    }
+
+    setColorRangeConfig((prev) => ({
+      ...prev,
+      steps: availableSteps[availableSteps.length - 1],
+    }));
+  }, [availableSteps, colorRangeConfig.steps]);
+
   const filteredColorRange = useMemo(() => {
-    return COLOR_RANGES.filter((colorRange) => {
+    const filtered = COLOR_RANGES.filter((colorRange) => {
       const isType = colorRangeConfig.type === "all" || colorRangeConfig.type === colorRange.type;
       const isStep = Number(colorRangeConfig.steps) === colorRange.colors.length;
 
       return isType && isStep;
     });
-  }, [colorRangeConfig]);
+
+    const selectedSignature = selectedColorRange.colors.map((color) => color.toLowerCase()).join("|");
+    const deduplicated = new Map<string, ColorRange>();
+
+    filtered.forEach((colorRange) => {
+      const signature = colorRange.colors.map((color) => color.toLowerCase()).join("|");
+      const existing = deduplicated.get(signature);
+
+      if (!existing) {
+        deduplicated.set(signature, colorRange);
+        return;
+      }
+
+      const isSelectedDuplicate =
+        signature === selectedSignature && colorRange.name === selectedColorRange.name;
+
+      if (isSelectedDuplicate) {
+        deduplicated.set(signature, colorRange);
+      }
+    });
+
+    return Array.from(deduplicated.values());
+  }, [colorRangeConfig, selectedColorRange.colors, selectedColorRange.name]);
 
   return (
     <Stack spacing={2}>
@@ -157,6 +202,16 @@ const ColorRangeSelector = (props: ColorRangeSelectorProps) => {
         ? ["custom"]
         : Object.keys(colorRangeConfig)
       ).map((key) => (
+        (() => {
+          const config =
+            key === "steps"
+              ? {
+                  ...CONFIG_SETTINGS[key],
+                  options: availableSteps,
+                }
+              : CONFIG_SETTINGS[key];
+
+          return (
         <PaletteConfig
           disabled={
             ["ordinal", "custom_breaks"].includes(props.scaleType as string) &&
@@ -164,7 +219,7 @@ const ColorRangeSelector = (props: ColorRangeSelectorProps) => {
           }
           key={key}
           label={CONFIG_SETTINGS[key].label || key}
-          config={CONFIG_SETTINGS[key]}
+          config={config}
           value={colorRangeConfig[key]}
           onChange={(value) => {
             setColorRangeConfig({
@@ -174,6 +229,8 @@ const ColorRangeSelector = (props: ColorRangeSelectorProps) => {
           }}
           setIsBusy={props.setIsBusy}
         />
+          );
+        })()
       ))}
       {colorRangeConfig.custom && !["ordinal", "custom_breaks"].includes(props.scaleType as string) ? (
         <CustomPalette

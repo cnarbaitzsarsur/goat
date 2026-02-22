@@ -161,6 +161,8 @@ def _execute_analytics_sync(process_id: str, inputs: dict[str, Any]) -> dict[str
                 collection=inputs.get("collection", ""),
                 column=inputs.get("column", ""),
                 num_bins=inputs.get("num_bins", 10),
+                method=inputs.get("method", "equal_interval"),
+                custom_breaks=inputs.get("custom_breaks"),
                 filter_expr=inputs.get("filter"),
                 order=inputs.get("order", "ascendent"),
             )

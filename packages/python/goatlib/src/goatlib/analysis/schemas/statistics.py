@@ -15,6 +15,16 @@ class ClassBreakMethod(StrEnum):
     heads_and_tails = "heads_and_tails"
 
 
+class HistogramBreakMethod(StrEnum):
+    """Binning methods for histogram calculation."""
+
+    equal_interval = "equal_interval"
+    quantile = "quantile"
+    standard_deviation = "standard_deviation"
+    heads_and_tails = "heads_and_tails"
+    custom_breaks = "custom_breaks"
+
+
 class SortOrder(StrEnum):
     """Sort order for unique values."""
 
@@ -212,6 +222,14 @@ class HistogramInput(BaseModel):
     column: str = Field(description="Numeric column to create histogram for")
     num_bins: int = Field(
         default=10, ge=1, le=100, description="Number of histogram bins"
+    )
+    method: HistogramBreakMethod = Field(
+        default=HistogramBreakMethod.equal_interval,
+        description="Histogram binning method",
+    )
+    custom_breaks: list[float] | None = Field(
+        default=None,
+        description="Custom internal bin boundaries (used when method='custom_breaks')",
     )
     filter: str | None = Field(default=None, description="CQL2 filter expression")
     order: SortOrder = Field(

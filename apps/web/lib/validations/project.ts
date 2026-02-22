@@ -264,6 +264,17 @@ export const aggregationStatsResponseSchema = z.object({
 export const histogramStatsQueryParams = z.object({
   column_name: z.string(),
   num_bins: z.number().default(10),
+  method: z
+    .enum([
+      "equal_interval",
+      "quantile",
+      "standard_deviation",
+      "heads_and_tails",
+      "custom_breaks",
+    ])
+    .optional()
+    .default("equal_interval"),
+  custom_breaks: z.array(z.number()).optional(),
   query: z.string().optional(),
   order: orderByEnum.optional(),
 });

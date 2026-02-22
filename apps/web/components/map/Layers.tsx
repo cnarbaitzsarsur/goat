@@ -1,5 +1,6 @@
 import { setColorFunction } from "@geomatico/maplibre-cog-protocol";
 import React, { useMemo } from "react";
+import type { FilterSpecification } from "maplibre-gl";
 import type { LayerProps, MapGeoJSONFeature } from "react-map-gl/maplibre";
 import { Layer as MapLayer, Source } from "react-map-gl/maplibre";
 
@@ -28,6 +29,17 @@ interface LayersProps {
 const Layers = (props: LayersProps) => {
   const temporaryFilters = useAppSelector((state) => state.map.temporaryFilters);
   const mapMode = useAppSelector((state) => state.map.mapMode);
+
+  const splitLayerFilter = (style: LayerProps) => {
+    const styleWithFilter = style as LayerProps & { filter?: unknown };
+    const { filter, ...layerStyleSpec } = styleWithFilter;
+    return { filter, layerStyleSpec: layerStyleSpec as LayerProps };
+  };
+
+  const getMapLayerFilter = (filter: unknown): FilterSpecification | undefined => {
+    return Array.isArray(filter) ? (filter as FilterSpecification) : undefined;
+  };
+
   const scenarioFeaturesToExclude = useMemo(() => {
     const featuresToExclude: { [key: string]: string[] } = {};
     props.scenarioFeatures?.features.forEach((feature) => {
@@ -96,11 +108,13 @@ const Layers = (props: LayersProps) => {
   };
 
   const getFeatureTileUrl = (layer: ProjectLayer | Layer) => {
-    let query = "";
     const extendedQuery = getLayerQueryFilter(layer);
+    let query = "";
+
     if (extendedQuery && Object.keys(extendedQuery).length > 0) {
       query = `?filter=${encodeURIComponent(JSON.stringify(extendedQuery))}`;
     }
+
     const layerId = layer["layer_id"] || layer["id"];
     return `${GEOAPI_BASE_URL}/collections/${layerId}/tiles/WebMercatorQuad/{z}/{x}/{y}${query}`;
   };
@@ -125,6 +139,30 @@ const Layers = (props: LayersProps) => {
         ? useDataLayers.map((layer: ProjectLayer | Layer, index: number) =>
             (() => {
               if (layer.type === "feature") {
+                const { filter: layerFilter, layerStyleSpec } = splitLayerFilter(
+                  transformToMapboxLayerStyleSpec(layer) as LayerProps
+                );
+                const mapLayerFilter = getMapLayerFilter(layerFilter);
+                const { filter: strokeFilter, layerStyleSpec: strokeStyleSpec } = splitLayerFilter(
+                  transformToMapboxLayerStyleSpec({
+                    ...layer,
+                    feature_layer_geometry_type: "line",
+                    properties: {
+                      ...layer.properties,
+                      opacity: 1,
+                      visibility:
+                        layer.properties?.visibility &&
+                        (layer.properties as FeatureLayerProperties)?.stroked,
+                    },
+                  }) as LayerProps
+                );
+                const mapStrokeFilter = getMapLayerFilter(strokeFilter);
+
+                const { filter: labelFilter, layerStyleSpec: labelStyleSpec } = splitLayerFilter(
+                  getSymbolStyleSpec((layer.properties as FeatureLayerProperties)?.text_label, layer) as LayerProps
+                );
+                const mapLabelFilter = getMapLayerFilter(labelFilter);
+
                 return (
                   <Source key={layer.id} type="vector" tiles={[getFeatureTileUrl(layer)]} maxzoom={14}>
                     {!layer.properties?.["custom_marker"] && (
@@ -133,7 +171,8 @@ const Layers = (props: LayersProps) => {
                         minzoom={layer.properties.min_zoom || 0}
                         maxzoom={layer.properties.max_zoom || 24}
                         id={layer.id.toString()}
-                        {...(transformToMapboxLayerStyleSpec(layer) as LayerProps)}
+                        {...layerStyleSpec}
+                        {...(mapLayerFilter ? { filter: mapLayerFilter } : {})}
                         beforeId={
                           index === 0 || !useDataLayers ? undefined : useDataLayers[index - 1].id.toString()
                         }
@@ -149,17 +188,8 @@ const Layers = (props: LayersProps) => {
                         beforeId={
                           index === 0 || !useDataLayers ? undefined : useDataLayers[index - 1].id.toString()
                         }
-                        {...(transformToMapboxLayerStyleSpec({
-                          ...layer,
-                          feature_layer_geometry_type: "line",
-                          properties: {
-                            ...layer.properties,
-                            opacity: 1, // todo: add stroke_opacity to the layer properties
-                            visibility:
-                              layer.properties?.visibility &&
-                              (layer.properties as FeatureLayerProperties)?.stroked,
-                          },
-                        }) as LayerProps)}
+                        {...strokeStyleSpec}
+                        {...(mapStrokeFilter ? { filter: mapStrokeFilter } : {})}
                         source-layer="default"
                       />
                     )}
@@ -177,10 +207,8 @@ const Layers = (props: LayersProps) => {
                         source-layer="default"
                         minzoom={layer.properties.min_zoom || 0}
                         maxzoom={layer.properties.max_zoom || 24}
-                        {...(getSymbolStyleSpec(
-                          (layer.properties as FeatureLayerProperties)?.text_label,
-                          layer
-                        ) as LayerProps)}
+                        {...labelStyleSpec}
+                        {...(mapLabelFilter ? { filter: mapLabelFilter } : {})}
                         beforeId={
                           index === 0 || !useDataLayers ? undefined : useDataLayers[index - 1].id.toString()
                         }
@@ -251,6 +279,12 @@ const Layers = (props: LayersProps) => {
       {systemLayers?.length
         ? systemLayers.map((layer: ProjectLayer | Layer) =>
             props.selectedScenarioLayer?.id === layer.id ? (
+              (() => {
+                const { filter: layerFilter, layerStyleSpec } = splitLayerFilter(
+                  transformToMapboxLayerStyleSpec(layer) as LayerProps
+                );
+                const mapLayerFilter = getMapLayerFilter(layerFilter);
+                return (
               <Source
                 key={layer.id}
                 type="vector"
@@ -260,12 +294,15 @@ const Layers = (props: LayersProps) => {
                 <MapLayer
                   key={getLayerKey(layer)}
                   id={layer.id.toString()}
-                  {...(transformToMapboxLayerStyleSpec(layer) as LayerProps)}
+                  {...layerStyleSpec}
+                  {...(mapLayerFilter ? { filter: mapLayerFilter } : {})}
                   source-layer="default"
                   minzoom={14}
                   maxzoom={22}
                 />
               </Source>
+                );
+              })()
             ) : null
           )
         : null}

@@ -76,12 +76,12 @@ In case you need to perform analysis beyond this geofence, feel free to contact 
 
 <div class="step">
   <div class="step-number">5</div>
-  <div class="content">Choose the <code>Catchment area type</code>: <b>Buffer</b> or <b>Network</b>.</div>
+  <div class="content">Choose the <code>Catchment area type</code>: <b>Buffer</b>.</div>
 </div>
 
 :::info
 
-**Buffers** represent areas around public transport stations measured "as the crow flies", while **network** catchment areas account for the same distances along real-world streets and paths.
+**Buffers** represent areas around public transport stations measured "as the crow flies".
 
 :::
 
@@ -126,7 +126,7 @@ First, the number of departures per public transport mode (train, metro, tram, a
 2. **Frequency**: The sum of the departures is divided by two to eliminate the outward and return directions.
 3. **Station type**: For each station, determine the highest-ranking mode of transport served (e.g., if both bus and train are available, the station is classified as a train station).
 4. **Category assignment**: Use the station type and frequency to determine the category (see table below).
-5. **Catchment areas**: Create buffers or network isochrones for each station category.
+5. **Catchment areas**: Create buffers for each station category.
 6. **Merge areas**: Overlapping areas are merged, with the higher-quality class taking precedence.
 
 
@@ -147,7 +147,7 @@ First, the number of departures per public transport mode (train, metro, tram, a
 
 ### Visualization
 
-The created buffers/network catchment areas are visualized around the stations in the corresponding colors to highlight the **quality class** (<span style={{color: "#199741"}}>A</span>-<span style={{color: "#E4696A"}}>F</span>).
+The created buffer catchment areas are visualized around the stations in the corresponding colors to highlight the **quality class** (<span style={{color: "#199741"}}>A</span>-<span style={{color: "#E4696A"}}>F</span>).
 
 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
   <img src={require('/img/toolbox/accessibility_indicators/gueteklassen/visualization.png').default} alt="Visualization of the ÖV-Güteklassen" style={{ maxHeight: "400px", maxWidth: "100%", objectFit: "cover"}}/>

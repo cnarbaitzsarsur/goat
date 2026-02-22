@@ -11,7 +11,7 @@ Reference:
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Import PTTimeWindow from base and re-export for backwards compatibility
 from goatlib.analysis.schemas.base import PTTimeWindow
@@ -23,6 +23,38 @@ __all__ = [
     "STATION_CONFIG_DEFAULT",
     "OevGueteklasseParams",
 ]
+
+
+STANDARD_TO_EXTENDED_ROUTE_TYPES: dict[str, list[str]] = {
+    "0": ["900", "901", "902", "903", "904", "905", "906"],
+    "1": ["401", "402"],
+    "2": [
+        "100",
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "106",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112",
+        "114",
+        "116",
+        "117",
+        "400",
+        "403",
+        "405",
+    ],
+    "3": ["200", "201", "202", "204", "700", "701", "702", "704", "705", "712", "715", "800"],
+    "4": ["1000"],
+    "5": ["1300"],
+    "6": [],
+    "7": ["1400"],
+}
 
 
 class CatchmentType(str, Enum):
@@ -85,6 +117,109 @@ class OevGueteklasseStationConfig(BaseModel):
             for cat, distances in v.items()
         }
 
+    @field_validator("time_frequency")
+    @classmethod
+    def validate_time_frequency(cls, value: list[int]) -> list[int]:
+        """Validate frequency thresholds are strictly increasing positive values."""
+        if not value:
+            raise ValueError("time_frequency must not be empty")
+
+        if any(freq <= 0 for freq in value):
+            raise ValueError("time_frequency values must be positive")
+
+        if any(curr <= prev for prev, curr in zip(value, value[1:], strict=False)):
+            raise ValueError("time_frequency must be strictly increasing")
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_configuration_consistency(self) -> "OevGueteklasseStationConfig":
+        """Validate consistency across categories, groups and classification."""
+        for standard_route_type, extended_route_types in STANDARD_TO_EXTENDED_ROUTE_TYPES.items():
+            group = self.groups.get(standard_route_type)
+            if group is None:
+                continue
+
+            for extended_route_type in extended_route_types:
+                self.groups.setdefault(extended_route_type, group)
+
+        if len(self.categories) != len(self.time_frequency):
+            raise ValueError(
+                "categories length must match time_frequency length"
+            )
+
+        allowed_groups = {"A", "B", "C"}
+        invalid_group_mappings = {
+            route_type: group
+            for route_type, group in self.groups.items()
+            if group not in allowed_groups
+        }
+        if invalid_group_mappings:
+            raise ValueError(
+                "groups must map route types only to A, B, or C"
+            )
+
+        used_station_categories: set[int] = set()
+        for row in self.categories:
+            if not row:
+                raise ValueError("categories rows must not be empty")
+
+            invalid_row_groups = [group for group in row if group not in allowed_groups]
+            if invalid_row_groups:
+                raise ValueError(
+                    f"categories contains invalid group keys: {invalid_row_groups}"
+                )
+
+            for station_category in row.values():
+                if station_category <= 0:
+                    raise ValueError("station category values must be positive integers")
+                used_station_categories.add(station_category)
+
+        if not self.classification:
+            raise ValueError("classification must not be empty")
+
+        classification_categories: set[int] = set()
+        for station_category, distances in self.classification.items():
+            try:
+                station_category_int = int(station_category)
+            except ValueError as exc:
+                raise ValueError(
+                    f"classification category key must be numeric: {station_category}"
+                ) from exc
+
+            if station_category_int <= 0:
+                raise ValueError("classification category keys must be positive")
+
+            classification_categories.add(station_category_int)
+
+            if not distances:
+                raise ValueError(
+                    f"classification for category {station_category} must not be empty"
+                )
+
+            distance_keys = list(distances.keys())
+            if any(distance <= 0 for distance in distance_keys):
+                raise ValueError("classification distances must be positive")
+            if distance_keys != sorted(distance_keys):
+                raise ValueError(
+                    f"classification distances for category {station_category} must be sorted ascending"
+                )
+
+            for pt_class in distances.values():
+                if not str(pt_class).isdigit() or int(pt_class) <= 0:
+                    raise ValueError(
+                        "classification PT class values must be positive integer strings"
+                    )
+
+        missing_categories = sorted(used_station_categories - classification_categories)
+        if missing_categories:
+            raise ValueError(
+                "classification is missing station categories used in categories: "
+                f"{missing_categories}"
+            )
+
+        return self
+
 
 # Default station configuration based on Swiss ARE methodology
 # Extended route types: https://developers.google.com/transit/gtfs/reference/extended-route-types
@@ -95,6 +230,7 @@ STATION_CONFIG_DEFAULT = OevGueteklasseStationConfig(
         "1": "A",  # Subway, Metro
         "2": "A",  # Rail
         "3": "C",  # Bus
+        "6": "C",  # Gondola, Suspended cable car
         "7": "B",  # Funicular
         # Extended route types - Rail
         "100": "A",  # Railway Service

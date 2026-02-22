@@ -223,6 +223,8 @@ export const useProjectLayerHistogramStats = (layerId?: string, queryParams?: Hi
               collection: layerId,
               column: queryParams.column_name,
               num_bins: queryParams.num_bins || 10,
+              method: queryParams.method || "equal_interval",
+              custom_breaks: queryParams.custom_breaks,
               filter: queryParams.query,
             },
           },

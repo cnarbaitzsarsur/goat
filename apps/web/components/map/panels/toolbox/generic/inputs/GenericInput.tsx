@@ -16,6 +16,7 @@ import LayerInput from "@/components/map/panels/toolbox/generic/inputs/LayerInpu
 import MultiEnumInput from "@/components/map/panels/toolbox/generic/inputs/MultiEnumInput";
 import NumberInput from "@/components/map/panels/toolbox/generic/inputs/NumberInput";
 import ObjectInput from "@/components/map/panels/toolbox/generic/inputs/ObjectInput";
+import OevStationConfigInput from "@/components/map/panels/toolbox/generic/inputs/OevStationConfigInput";
 import RepeatableObjectInput from "@/components/map/panels/toolbox/generic/inputs/RepeatableObjectInput";
 import ScenarioInput from "@/components/map/panels/toolbox/generic/inputs/ScenarioInput";
 import StartingPointsInput from "@/components/map/panels/toolbox/generic/inputs/StartingPointsInput";
@@ -41,6 +42,8 @@ interface GenericInputProps {
   layerDatasetIds?: Record<string, string>;
   /** Map of layer input names to their predicted columns (for connected tool outputs) */
   predictedColumns?: Record<string, Record<string, string>>;
+  /** Process ID for tool-specific input overrides */
+  processId?: string;
 }
 
 // Stable empty object reference to avoid creating new references on each render
@@ -58,9 +61,14 @@ export default function GenericInput({
   excludedLayerIds,
   layerDatasetIds,
   predictedColumns,
+  processId,
 }: GenericInputProps) {
   // Ensure formValues is always an object (handles explicit undefined) - use stable reference
   const safeFormValues = formValues && Object.keys(formValues).length > 0 ? formValues : EMPTY_FORM_VALUES;
+
+  if (processId === "oev_gueteklassen" && input.name === "station_config") {
+    return <OevStationConfigInput input={input} value={value} onChange={onChange} disabled={disabled} />;
+  }
 
   switch (input.inputType) {
     case "layer":

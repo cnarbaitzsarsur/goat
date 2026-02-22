@@ -48,6 +48,7 @@ const RangeFilter = ({
     return {
       column_name: fieldName,
       num_bins: steps,
+      method: "equal_interval",
       query: cqlFilterString,
     };
   }, [fieldName, steps, cqlFilterString]);

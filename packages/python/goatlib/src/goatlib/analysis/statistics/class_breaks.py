@@ -110,9 +110,18 @@ def _calculate_quantile_breaks(
     params: list[Any] | None,
     num_breaks: int,
 ) -> list[float]:
-    """Calculate quantile breaks using PERCENTILE_CONT."""
-    # Generate percentile values (e.g., for 5 breaks: 0.2, 0.4, 0.6, 0.8, 1.0)
-    percentiles = [i / num_breaks for i in range(1, num_breaks + 1)]
+    """Calculate quantile breaks using PERCENTILE_CONT.
+
+    Returns num_breaks internal break points that divide data into
+    num_breaks + 1 equal-frequency bins. The min and max values are
+    excluded from the breaks (they are returned separately in the result).
+
+    For example, with num_breaks=4 (quintiles = 5 classes):
+    percentiles = [0.2, 0.4, 0.6, 0.8]
+    """
+    # Generate internal percentile values that exclude 0.0 (min) and 1.0 (max)
+    # e.g., for 4 breaks (5 classes): 0.2, 0.4, 0.6, 0.8
+    percentiles = [i / (num_breaks + 1) for i in range(1, num_breaks + 1)]
 
     # Build query with multiple PERCENTILE_CONT calls
     percentile_exprs = ", ".join(
@@ -137,11 +146,19 @@ def _calculate_quantile_breaks(
 def _calculate_equal_interval_breaks(
     min_val: float, max_val: float, num_breaks: int
 ) -> list[float]:
-    """Calculate equal interval breaks."""
+    """Calculate equal interval breaks.
+
+    Returns num_breaks internal break points that divide the range into
+    num_breaks + 1 equal-width bins. The min and max values are excluded
+    from the breaks (they are returned separately in the result).
+
+    For example, with min=0, max=100, num_breaks=4:
+    interval = 20, breaks = [20, 40, 60, 80]
+    """
     if min_val == max_val:
         return [float(min_val)]
 
-    interval = (max_val - min_val) / num_breaks
+    interval = (max_val - min_val) / (num_breaks + 1)
     breaks = [min_val + interval * i for i in range(1, num_breaks + 1)]
     return [float(b) for b in breaks]
 
@@ -153,7 +170,11 @@ def _calculate_std_dev_breaks(
     std_dev: float | None,
     num_breaks: int,
 ) -> list[float]:
-    """Calculate standard deviation breaks."""
+    """Calculate standard deviation breaks.
+
+    Returns internal break points at standard deviation intervals around
+    the mean. Break points at or beyond min/max are excluded.
+    """
     if std_dev is None or std_dev == 0:
         return _calculate_equal_interval_breaks(min_val, max_val, num_breaks)
 
@@ -165,12 +186,9 @@ def _calculate_std_dev_breaks(
         if i == 0:
             continue
         break_val = mean_val + (i * std_dev)
-        if min_val <= break_val <= max_val:
+        # Only include internal breaks strictly between min and max
+        if min_val < break_val < max_val:
             breaks.append(break_val)
-
-    # Always include max
-    if not breaks or breaks[-1] < max_val:
-        breaks.append(max_val)
 
     return sorted([float(b) for b in breaks])
 
@@ -192,7 +210,7 @@ def _calculate_heads_tails_breaks(
     breaks = []
     current_mean = initial_mean
 
-    for _ in range(num_breaks - 1):
+    for _ in range(num_breaks):
         breaks.append(float(current_mean))
 
         # Get mean of values above current mean

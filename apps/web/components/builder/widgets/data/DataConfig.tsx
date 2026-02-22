@@ -26,7 +26,8 @@ import useLayerFields from "@/hooks/map/CommonHooks";
 import { useLayerDatasetId } from "@/hooks/map/ToolsHooks";
 
 import WidgetColorPicker from "@/components/builder/widgets/common/WidgetColorPicker";
-import CategoryOrderConfig from "@/components/builder/widgets/data/CategoryOrderConfig";
+import CategoryColorConfig from "@/components/builder/widgets/data/CategoryColorConfig";
+import FilterValueLabelConfig from "@/components/builder/widgets/data/FilterValueLabelConfig";
 import SectionHeader from "@/components/map/panels/common/SectionHeader";
 import SectionOptions from "@/components/map/panels/common/SectionOptions";
 import Selector from "@/components/map/panels/common/Selector";
@@ -506,7 +507,8 @@ export const WidgetFilterLayout = ({
       />
 
       {/* Style section - show for layouts that support color customization */}
-      {(selectedLayout?.value === filterLayoutTypes.Values.chips ||
+      {(selectedLayout?.value === filterLayoutTypes.Values.select ||
+        selectedLayout?.value === filterLayoutTypes.Values.chips ||
         selectedLayout?.value === filterLayoutTypes.Values.checkbox ||
         selectedLayout?.value === filterLayoutTypes.Values.range) && (
         <>
@@ -521,32 +523,61 @@ export const WidgetFilterLayout = ({
             active={true}
             baseOptions={
               <Stack spacing={2}>
-                <WidgetColorPicker
-                  color={config.options?.color || "#0e58ff"}
-                  onChange={(color) => {
-                    onChange({
-                      ...config,
-                      options: {
-                        ...config.options,
-                        color,
-                      },
-                    });
-                  }}
-                  label={t("color")}
-                />
-                {/* Category order for chips and checkbox */}
+                {(selectedLayout?.value === filterLayoutTypes.Values.chips ||
+                  selectedLayout?.value === filterLayoutTypes.Values.checkbox ||
+                  selectedLayout?.value === filterLayoutTypes.Values.range) && (
+                  <WidgetColorPicker
+                    color={config.options?.color || "#0e58ff"}
+                    onChange={(color) => {
+                      onChange({
+                        ...config,
+                        options: {
+                          ...config.options,
+                          color,
+                        },
+                      });
+                    }}
+                    label={t("color")}
+                  />
+                )}
+                {/* Category-style order/label config for chips and checkbox */}
                 {(selectedLayout?.value === filterLayoutTypes.Values.chips ||
                   selectedLayout?.value === filterLayoutTypes.Values.checkbox) && (
-                  <CategoryOrderConfig
+                  <CategoryColorConfig
                     layerId={selectedLayerDatasetId}
                     fieldName={config.setup?.column_name}
                     customOrder={config.setup?.custom_order}
-                    onOrderChange={(order) => {
+                    colorMap={[]}
+                    labelMap={config.options?.label_map}
+                    showColorPicker={false}
+                    onChange={(order, _colorMap, labelMap) => {
                       onChange({
                         ...config,
                         setup: {
                           ...config.setup,
                           custom_order: order,
+                        },
+                        options: {
+                          ...config.options,
+                          label_map: labelMap,
+                        },
+                      });
+                    }}
+                  />
+                )}
+                {/* Value label mapping for discrete filter layouts */}
+                {selectedLayout?.value === filterLayoutTypes.Values.select && (
+                  <FilterValueLabelConfig
+                    layerId={selectedLayerDatasetId}
+                    fieldName={config.setup?.column_name}
+                    customOrder={config.setup?.custom_order}
+                    labelMap={config.options?.label_map}
+                    onLabelMapChange={(labelMap) => {
+                      onChange({
+                        ...config,
+                        options: {
+                          ...config.options,
+                          label_map: labelMap,
                         },
                       });
                     }}

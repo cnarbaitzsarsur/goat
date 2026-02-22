@@ -66,7 +66,29 @@ export const layerClassBreaks = z.object({
 });
 
 const ColorLegends = z.record(z.string());
-export const colorRange = z.object({
+const sanitizeColorRangeInput = (input: unknown): unknown => {
+  if (!input || typeof input !== "object") {
+    return input;
+  }
+
+  const colorRangeInput = { ...(input as Record<string, unknown>) };
+  const rawColorMap = colorRangeInput.color_map;
+
+  if (Array.isArray(rawColorMap)) {
+    colorRangeInput.color_map = rawColorMap.filter((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) {
+        return false;
+      }
+
+      const color = entry[1];
+      return typeof color === "string" && color.length > 0;
+    });
+  }
+
+  return colorRangeInput;
+};
+
+const colorRangeSchema = z.object({
   name: z.string().optional(),
   type: z.string().optional(),
   category: z.string().optional(),
@@ -75,6 +97,8 @@ export const colorRange = z.object({
   color_map: ColorMap.optional(),
   color_legends: ColorLegends.optional(),
 });
+
+export const colorRange = z.preprocess(sanitizeColorRangeInput, colorRangeSchema);
 
 export const SymbolPlacementAnchor = z.enum([
   "center",

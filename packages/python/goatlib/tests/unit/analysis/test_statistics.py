@@ -208,8 +208,10 @@ class TestClassBreaks:
         assert result.min == 10.0
         assert result.max == 100.0
 
-        # Equal interval breaks should be evenly spaced
-        expected_breaks = [28.0, 46.0, 64.0, 82.0, 100.0]
+        # Equal interval breaks: 5 internal breaks for 6 classes
+        # interval = (100 - 10) / (5 + 1) = 15
+        # breaks should NOT include min (10) or max (100)
+        expected_breaks = [25.0, 40.0, 55.0, 70.0, 85.0]
         for actual, expected in zip(result.breaks, expected_breaks):
             assert abs(actual - expected) < 0.1
 
@@ -883,6 +885,35 @@ class TestHistogram:
         assert result.total_rows == 4
         total_in_bins = sum(bin.count for bin in result.bins)
         assert total_in_bins == 4
+
+    def test_histogram_quantile_binning(self, sample_data_table):
+        """Test histogram with quantile binning method."""
+        result = calculate_histogram(
+            sample_data_table,
+            "test_data",
+            column="value",
+            num_bins=5,
+            method="quantile",
+        )
+
+        assert len(result.bins) == 5
+        assert result.total_rows == 10
+        assert sum(bin.count for bin in result.bins) == 10
+
+    def test_histogram_custom_breaks(self, sample_data_table):
+        """Test histogram with custom internal break points."""
+        result = calculate_histogram(
+            sample_data_table,
+            "test_data",
+            column="value",
+            method="custom_breaks",
+            custom_breaks=[25, 55, 85],
+        )
+
+        assert len(result.bins) == 4
+        counts = [bin.count for bin in result.bins]
+        assert counts == [2, 3, 3, 2]
+        assert sum(counts) == 10
 
     def test_histogram_descendent_order(self, sample_data_table):
         """Test histogram with descending bin order."""

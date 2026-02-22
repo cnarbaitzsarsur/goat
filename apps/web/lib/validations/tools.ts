@@ -140,13 +140,114 @@ export type PostActiveMobilityAndCarCatchmentArea = z.infer<typeof activeMobilit
 export type PostPTCatchmentArea = z.infer<typeof ptCatchmentAreaSchema>;
 
 //**=== OEV-GUETEKLASSEN + TRIP COUNT === */
-export const oevGueteklassenCatchmentType = z.enum(["buffer", "network"]);
-export const stationConfigSchema = z.object({
-  groups: z.record(z.string()),
-  time_frequency: z.array(z.number()),
-  categories: z.array(z.record(z.number())),
-  classification: z.record(z.record(z.string())),
-});
+export const oevGueteklassenCatchmentType = z.enum(["buffer"]);
+export const stationConfigSchema = z
+  .object({
+    groups: z.record(z.enum(["A", "B", "C"])),
+    time_frequency: z.array(z.number().int().positive()).min(1),
+    categories: z
+      .array(
+        z.object({
+          A: z.number().int().positive().optional(),
+          B: z.number().int().positive().optional(),
+          C: z.number().int().positive().optional(),
+        })
+      )
+      .min(1),
+    classification: z.record(
+      z
+        .record(
+          z.string(),
+          z.string().regex(/^[1-9]\d*$/, {
+            message: "PT class values must be positive integer strings",
+          })
+        )
+        .refine((distances) => Object.keys(distances).length > 0, {
+          message: "Each classification category must define at least one distance",
+        })
+    ),
+  })
+  .superRefine((value, ctx) => {
+    const { time_frequency, categories, classification } = value;
+
+    for (let i = 1; i < time_frequency.length; i += 1) {
+      if (time_frequency[i] <= time_frequency[i - 1]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["time_frequency", i],
+          message: "time_frequency must be strictly increasing",
+        });
+      }
+    }
+
+    if (categories.length !== time_frequency.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["categories"],
+        message: "categories length must match time_frequency length",
+      });
+    }
+
+    const usedCategories = new Set<number>();
+    categories.forEach((row, rowIdx) => {
+      if (row.A === undefined && row.B === undefined && row.C === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["categories", rowIdx],
+          message: "Each categories row must define at least one of A, B, or C",
+        });
+      }
+
+      [row.A, row.B, row.C].forEach((stationCategory) => {
+        if (stationCategory !== undefined) {
+          usedCategories.add(stationCategory);
+        }
+      });
+    });
+
+    const classificationCategories = new Set<number>();
+    Object.entries(classification).forEach(([category, distances]) => {
+      const categoryNumber = Number(category);
+      if (!Number.isInteger(categoryNumber) || categoryNumber <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["classification", category],
+          message: "classification keys must be positive integer category ids",
+        });
+        return;
+      }
+      classificationCategories.add(categoryNumber);
+
+      const distanceKeys = Object.keys(distances).map(Number);
+      if (distanceKeys.some((distance) => !Number.isFinite(distance) || distance <= 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["classification", category],
+          message: "classification distance keys must be positive numbers",
+        });
+      }
+
+      const sortedDistanceKeys = [...distanceKeys].sort((a, b) => a - b);
+      if (distanceKeys.some((distance, index) => distance !== sortedDistanceKeys[index])) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["classification", category],
+          message: "classification distance keys must be sorted ascending",
+        });
+      }
+    });
+
+    const missing = [...usedCategories].filter(
+      (stationCategory) => !classificationCategories.has(stationCategory)
+    );
+    if (missing.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["classification"],
+        message: `classification is missing station categories used in categories: ${missing.join(", ")}`,
+      });
+    }
+  });
 
 export const tripCountSchema = z.object({
   time_window: ptTimeWindow,

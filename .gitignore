@@ -60,6 +60,7 @@ wheels/
 .pytest_cache/
 
 # others
+compose.override.yaml
 build_keycloak
 storybook-static
 *.jar

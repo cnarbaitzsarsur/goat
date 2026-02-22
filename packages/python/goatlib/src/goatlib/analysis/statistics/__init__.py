@@ -25,6 +25,7 @@ from goatlib.analysis.schemas.statistics import (
     FeatureCountInput,
     FeatureCountResult,
     HistogramBin,
+    HistogramBreakMethod,
     HistogramInput,
     HistogramResult,
     SortOrder,
@@ -55,6 +56,7 @@ __all__ = [
     "SortOrder",
     "AreaOperation",
     "StatisticsOperation",
+    "HistogramBreakMethod",
     # Schemas - Inputs
     "FeatureCountInput",
     "AreaStatisticsInput",

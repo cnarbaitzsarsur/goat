@@ -36,12 +36,15 @@ export type SelectorProps = {
   onClose?: () => void;
   cqlFilter?: object | undefined;
   clearable?: boolean;
+  labelMap?: [string, string][];
 };
 
 const SelectorLayerValue = (props: SelectorProps) => {
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
   const { t } = useTranslation("common");
+
+  const labelMapLookup = new Map(props.labelMap || []);
   const { data, isLoading, searchText, setSearchText, debouncedSetSearchText } =
     useDatasetValueSelectorMethods({
       selectedValues: props.multiple ? (props.selectedValues as string[]) : [props.selectedValues as string],
@@ -127,8 +130,11 @@ const SelectorLayerValue = (props: SelectorProps) => {
               {props.selectedValues && (
                 <Typography variant="body2" fontWeight="bold">
                   {props.multiple && Array.isArray(props.selectedValues)
-                    ? props.selectedValues.filter((v) => !!v).join(", ")
-                    : props.selectedValues}
+                    ? props.selectedValues
+                        .filter((v) => !!v)
+                        .map((value) => labelMapLookup.get(value) || value)
+                        .join(", ")
+                    : labelMapLookup.get(props.selectedValues as string) || props.selectedValues}
                 </Typography>
               )}
             </>
@@ -196,7 +202,7 @@ const SelectorLayerValue = (props: SelectorProps) => {
               />
             )}
             <Typography variant="body2" fontWeight="bold">
-              {item.value}
+              {labelMapLookup.get(item.value) || item.value}
             </Typography>
           </MenuItem>
         ))}

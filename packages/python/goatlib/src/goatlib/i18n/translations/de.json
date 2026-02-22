@@ -800,7 +800,7 @@
       "description": "Es wird die Erreichbarkeit ausgehend von jeder Rasterzelle zu mehreren Orten gleichzeitig berechnet. Die Reisezeiten werden hierfür mit einer Widerstandsfunktion gewichtet und aggregiert."
     },
     "heatmap_closest_average": {
-      "title": "Heatmap Nächster Durchschnitt",
+      "title": "Heatmap Durchschnitt Reisezeit",
       "description": "Es wird die durchschnittliche Reisezeit zu den nächsten N Zielen aufgezeigt ausgehend von jeder Rasterzelle."
     },
     "heatmap_connectivity": {
@@ -908,7 +908,7 @@
     "catchment_area_starting_points": "Startpunkte",
     "heatmap_gravity": "Heatmap Gravity",
     "heatmap_connectivity": "Heatmap Connectivity",
-    "heatmap_closest_average": "Heatmap Closest Average",
+    "heatmap_closest_average": "Heatmap Durchschnitt Reisezeit",
     "heatmap_2sfca": "Heatmap 2SFCA",
     "huff_model": "Huff-Modell",
     "oev_gueteklassen": "ÖV-Güteklassen",

@@ -250,7 +250,7 @@ class OevGueteklasseTool(PTToolBase):
                     (
                         SELECT MIN(t.time_interval)
                         FROM time_frequency_thresholds t
-                        WHERE f.frequency_minutes < t.threshold_minutes
+                        WHERE f.frequency_minutes <= t.threshold_minutes
                     ),
                     999
                 ) AS time_interval

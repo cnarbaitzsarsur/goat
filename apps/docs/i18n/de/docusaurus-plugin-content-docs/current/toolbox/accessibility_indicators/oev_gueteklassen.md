@@ -77,12 +77,12 @@ Falls Sie eine Analyse außerhalb dieses Geofence durchführen müssen, kontakti
 
 <div class="step">
   <div class="step-number">5</div>
-  <div class="content">Wählen Sie den <code>Einzugsgebietstyp</code>: <b>Puffer</b> oder <b>Netzwerk</b>.</div>
+  <div class="content">Wählen Sie den <code>Einzugsgebietstyp</code>: <b>Puffer</b>.</div>
 </div>
 
 :::info
 
-**Pufferzonen** stellen Bereiche rund um öffentliche Verkehrsstationen dar, gemessen „in Luftlinie“, während **Netzwerk-Einzugsgebiete** dieselben Entfernungen entlang realer Straßen und Wege berücksichtigen.
+**Pufferzonen** stellen Bereiche rund um öffentliche Verkehrsstationen dar, gemessen „in Luftlinie“.
 
 :::
 
@@ -124,7 +124,7 @@ Zunächst wird die Anzahl der Abfahrten pro öffentlichem Verkehrsmittel (Zug, U
 2. **Frequenz**: Die Summe der Abfahrten wird durch zwei geteilt, um die Hin- und Rückrichtungen zu eliminieren.
 3. **Stationstyp**: Für jede Station wird das höchstrangige Verkehrsmittel bestimmt (z.B. wenn sowohl Bus als auch Zug verfügbar sind, wird die Station als Bahnstation klassifiziert).
 4. **Kategorienzuweisung**: Verwendung des Stationstyps und der Frequenz zur Bestimmung der Kategorie (siehe Tabelle unten).
-5. **Einzugsgebiete**: Erstellung von Pufferzonen oder Netzwerk-Isochronen für jede Stationskategorie.
+5. **Einzugsgebiete**: Erstellung von Pufferzonen für jede Stationskategorie.
 6. **Zusammenführung der Gebiete**: Überlappende Gebiete werden zusammengeführt, wobei die höhere Qualitätsklasse Vorrang hat.
 
 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -141,7 +141,7 @@ Zunächst wird die Anzahl der Abfahrten pro öffentlichem Verkehrsmittel (Zug, U
 
 ### Visualisierung
 
-Die erstellten Puffer/Netzwerk-Einzugsgebiete werden um die Haltestellen in den entsprechenden Farben visualisiert, um die **Güteklasse** (<span style={{color: "#199741"}}>A</span>-<span style={{color: "#E4696A"}}>F</span>) hervorzuheben.
+Die erstellten Puffer-Einzugsgebiete werden um die Haltestellen in den entsprechenden Farben visualisiert, um die **Güteklasse** (<span style={{color: "#199741"}}>A</span>-<span style={{color: "#E4696A"}}>F</span>) hervorzuheben.
 
 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
   <img src={require('/img/toolbox/accessibility_indicators/gueteklassen/visualization.png').default} alt="Visualisierung der ÖV-Güteklassen" style={{ maxHeight: "400px", maxWidth: "100%", objectFit: "cover"}}/>

@@ -14,7 +14,7 @@ interface WidgetChartProps {
 
 const WidgetChart: React.FC<WidgetChartProps> = ({ config }) => {
   return (
-    <Box sx={{ minHeight: 200 }}>
+    <Box sx={{ minHeight: config.type === chartTypes.Values.categories_chart ? "auto" : 200 }}>
       <Typography variant="body1" fontWeight="bold" align="left" gutterBottom>
         {config.setup?.title}
       </Typography>

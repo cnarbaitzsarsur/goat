@@ -16,6 +16,7 @@ import { ICON_NAME } from "@p4b/ui/components/Icon";
 import { useJobs } from "@/lib/api/processes";
 import { useProject } from "@/lib/api/projects";
 import { useUserProfile } from "@/lib/api/users";
+import { OEV_STATION_CONFIG_DEFAULT } from "@/lib/constants/oev-gueteklassen";
 import { setRunningJobIds } from "@/lib/store/jobs/slice";
 import { setToolboxStartingPoints } from "@/lib/store/map/slice";
 import {
@@ -40,6 +41,7 @@ import ToolboxActionButtons from "@/components/map/panels/common/ToolboxActionBu
 import ToolsHeader from "@/components/map/panels/common/ToolsHeader";
 import LearnMore from "@/components/map/panels/toolbox/common/LearnMore";
 import { GenericInput } from "@/components/map/panels/toolbox/generic/inputs";
+import OevStationConfigInput from "@/components/map/panels/toolbox/generic/inputs/OevStationConfigInput";
 
 // Map section icons from backend to ICON_NAME
 const SECTION_ICON_MAP: Record<string, ICON_NAME> = {
@@ -142,6 +144,22 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
       setAdvancedCollapsed(advCollapsed);
     }
   }, [process, sections]);
+
+  useEffect(() => {
+    if (processId !== "oev_gueteklassen") {
+      return;
+    }
+
+    setValues((prev) => {
+      if (prev.station_config) {
+        return prev;
+      }
+      return {
+        ...prev,
+        station_config: OEV_STATION_CONFIG_DEFAULT,
+      };
+    });
+  }, [processId]);
 
   // Get all inputs from all sections (flattened)
   const allInputs = useMemo(() => {
@@ -335,6 +353,10 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
       if (visibleInputNames.has(key)) {
         visibleValues[key] = value;
       }
+    }
+
+    if (processId === "oev_gueteklassen" && effectiveValues.station_config) {
+      visibleValues.station_config = effectiveValues.station_config;
     }
 
     // Convert project layer IDs to layer_ids (UUIDs) for layer inputs
@@ -537,6 +559,10 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
             const baseInputs = visibleInputs.filter((input) => !input.advanced);
             const advancedInputs = visibleInputs.filter((input) => input.advanced);
             const hasAdvancedOptions = advancedInputs.length > 0;
+            const shouldRenderOevStationConfigFallback =
+              processId === "oev_gueteklassen" &&
+              section.id === "configuration" &&
+              !visibleInputs.some((input) => input.name === "station_config");
 
             const isCollapsed = collapsedSections[section.id] ?? section.collapsed;
             const isAdvancedCollapsed = advancedCollapsed[section.id] ?? true;
@@ -594,8 +620,17 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
                             disabled={isExecuting}
                             formValues={effectiveValues}
                             schemaDefs={process.$defs}
+                            processId={processId}
                           />
                         ))}
+                        {shouldRenderOevStationConfigFallback && (
+                          <OevStationConfigInput
+                            input={{ name: "station_config", title: "Station configuration" }}
+                            value={effectiveValues.station_config}
+                            onChange={(value) => handleInputChange("station_config", value)}
+                            disabled={isExecuting}
+                          />
+                        )}
                       </Stack>
                     }
                     advancedOptions={
@@ -620,6 +655,7 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
                               disabled={isExecuting}
                               formValues={effectiveValues}
                               schemaDefs={process.$defs}
+                              processId={processId}
                             />
                           ))}
                         </Stack>
