@@ -15,11 +15,7 @@ from typing import Any, Self
 from pydantic import ConfigDict, Field
 
 from goatlib.analysis.geoanalysis.clustering_zones import ClusteringZones
-from goatlib.analysis.schemas.clustering import (
-    ClusteringParams,
-    WeightMethod,
-    WeightMethod_LABELS,
-)
+from goatlib.analysis.schemas.clustering import ClusteringParams, SizeMethod
 from goatlib.analysis.schemas.ui import (
     SECTION_INPUT,
     SECTION_OUTPUT,
@@ -70,12 +66,19 @@ class ClusteringZonesToolParams(ScenarioSelectorMixin, ToolInputBase, Clustering
         )
     )
 
-    # Override file paths as optional - we use layer IDs instead
+    # Override file paths as optional - the tool runner sets these internally
     input_path: str | None = Field(
         None,
         json_schema_extra=ui_field(section="input", hidden=True),
     )  # type: ignore[assignment]
-    output_path: str | None = None  # type: ignore[assignment]
+    output_path: str | None = Field(
+        None,
+        json_schema_extra=ui_field(section="output", hidden=True),
+    )  # type: ignore[assignment]
+    output_summary_path: str | None = Field(
+        None,
+        json_schema_extra=ui_field(section="output", hidden=True),
+    )  # type: ignore[assignment]
 
     # Layer ID for input
     input_layer_id: str = Field(
@@ -94,88 +97,20 @@ class ClusteringZonesToolParams(ScenarioSelectorMixin, ToolInputBase, Clustering
         json_schema_extra=ui_field(section="input", field_order=2, hidden=True),
     )
 
-    nb_cluster: int = Field(
-        ...,
-        description="Number of clusters " "It should be an integer ",
-        json_schema_extra=ui_field(
-            section="input",
-            field_order=2,
-            widget="number-input",
-            visible_when={"input_layer_id": {"$ne": None}},
-        ),
-    )
-
-    weight_method: WeightMethod = Field(
-        default=WeightMethod.count,
-        description="Method to determine balance weight: count (each point = 1) or field (use a numeric column).",
-        json_schema_extra=ui_field(
-            section="configuration",
-            field_order=2,
-            label_key="weight_method",
-            enum_labels=WeightMethod_LABELS,
-            visible_when={
-                "$and": [
-                    {"cluster_type": "equal_size"},
-                    {"input_layer_id": {"$ne": None}},
-                ]
-            },
-        ),
-    )
-
-    weight_field: str | None = Field(
+    # Override size_field to reference input_layer_id instead of input_path
+    size_field: str | None = Field(
         default=None,
-        description="Numeric field to use as balance weight when weight_method is 'field'.",
+        description="Numeric field to use for zone balancing when size_method is 'field'.",
         json_schema_extra=ui_field(
             section="configuration",
             field_order=3,
-            label_key="weight_field",
+            label_key="size_field",
             widget="field-selector",
-            widget_options={
-                "source_layer": "input_layer_id",
-                "field_types": ["number"],
-            },
+            widget_options={"source_layer": "input_layer_id", "field_types": ["number"]},
             visible_when={
                 "$and": [
                     {"cluster_type": "equal_size"},
-                    {"weight_method": "field"},
-                    {"input_layer_id": {"$ne": None}},
-                ]
-            },
-        ),
-    )
-
-    use_compactness: bool = Field(
-        default=False,
-        description="Enable compactness constraint to limit max distance between points in a zone.",
-        json_schema_extra=ui_field(
-            section="configuration",
-            field_order=4,
-            label_key="use_compactness",
-            widget="switch",
-            visible_when={
-                "$and": [
-                    {"cluster_type": "equal_size"},
-                    {"input_layer_id": {"$ne": None}},
-                ]
-            },
-        ),
-    )
-
-    max_distance: int = Field(
-        default=5000,
-        ge=500,
-        le=50000,
-        description="Maximum distance in meters between points within the same zone.",
-        json_schema_extra=ui_field(
-            section="configuration",
-            field_order=5,
-            label_key="max_distance",
-            widget="slider",
-            widget_options={"min": 500, "max": 50000, "step": 500},
-            visible_when={
-                "$and": [
-                    {"cluster_type": "equal_size"},
-                    {"use_compactness": True},
+                    {"size_method": "field"},
                     {"input_layer_id": {"$ne": None}},
                 ]
             },
@@ -183,7 +118,7 @@ class ClusteringZonesToolParams(ScenarioSelectorMixin, ToolInputBase, Clustering
     )
 
     # =========================================================================
-    # Result Layer Naming Section
+    # Result Layer Naming Section (overrides base with i18n defaults)
     # =========================================================================
     result_layer_name: str | None = Field(
         default=get_default_layer_name("clustered_features", "en"),
@@ -261,6 +196,7 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
             The summary result is stored in self._summary_result.
         """
         output_path = temp_dir / "clustering_result.parquet"
+        output_summary_path = temp_dir / "clustering_summary.parquet"
 
         # Export input layer to parquet
         input_layer_path = self.export_layer_to_parquet(
@@ -284,17 +220,17 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
                     "project_id",
                     "scenario_id",
                     "output_name",
+                    "output_summary_path",
                     "result_layer_name",
                     "summary_layer_name",
                     "triggered_by_email",
                     "input_layer_id",
                     "input_layer_filter",
-                    "use_compactness",
-                    "max_distance",
                 }
             ),
             input_path=str(input_layer_path),
             output_path=str(output_path),
+            output_summary_path=str(output_summary_path),
         )
 
         # Run the analysis — returns [points, summary]

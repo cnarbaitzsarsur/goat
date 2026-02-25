@@ -75,6 +75,12 @@ class DownloadS3FolderParams(BaseModel):
         default=True,
         description="Whether to validate MD5 checksums",
     )
+    access_key_id: str = Field(
+        description="S3 access key ID",
+    )
+    secret_access_key: str = Field(
+        description="S3 secret access key",
+    )
 
 
 @dataclass
@@ -192,7 +198,8 @@ class DownloadS3FolderTask:
         self.settings = ToolSettings.from_env()
 
     def _get_s3_client(
-        self: Self, endpoint_url: str | None, max_retries: int, workers: int
+        self: Self, endpoint_url: str | None, max_retries: int, workers: int,
+        access_key_id: str, secret_access_key: str
     ) -> "boto3.client":
         """Get or create S3 client."""
         if not self.settings:
@@ -210,8 +217,8 @@ class DownloadS3FolderTask:
         return boto3.client(
             "s3",
             endpoint_url=endpoint,
-            aws_access_key_id=self.settings.s3_access_key_id,
-            aws_secret_access_key=self.settings.s3_secret_access_key,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
             config=config,
         )
 
@@ -394,7 +401,8 @@ class DownloadS3FolderTask:
 
         # Create S3 client
         s3_client = self._get_s3_client(
-            params.endpoint_url, params.max_retries, params.workers
+            params.endpoint_url, params.max_retries, params.workers,
+            params.access_key_id, params.secret_access_key
         )
 
         # Initialize stats
@@ -493,29 +501,13 @@ class DownloadS3FolderTask:
         return stats.to_dict()
 
 
-def main(
-    bucket: str,
-    prefix: str,
-    output_dir: str,
-    endpoint_url: str | None = None,
-    max_retries: int = 3,
-    workers: int = 4,
-    validate_checksum: bool = True,
-) -> dict:
+def main(params: DownloadS3FolderParams) -> dict:
     """Download a folder from S3.
 
-    This is the Windmill entry point. Credentials are loaded from environment
-    variables via ToolSettings (S3_ENDPOINT_URL, S3_ACCESS_KEY_ID,
-    S3_SECRET_ACCESS_KEY).
+    This is the Windmill entry point. Credentials must be provided as parameters.
 
     Args:
-        bucket: S3 bucket name
-        prefix: S3 prefix (folder path) to download
-        output_dir: Local output directory
-        endpoint_url: S3 endpoint URL (optional, uses S3_ENDPOINT_URL env var)
-        max_retries: Number of retries for failed downloads (default: 3)
-        workers: Number of parallel download workers (default: 4)
-        validate_checksum: Whether to validate MD5 checksums (default: True)
+        params: Download parameters including bucket, prefix, output_dir, credentials, etc.
 
     Returns:
         Dict with download statistics
@@ -523,14 +515,4 @@ def main(
     task = DownloadS3FolderTask()
     task.init_from_env()
 
-    return task.run(
-        DownloadS3FolderParams(
-            bucket=bucket,
-            prefix=prefix,
-            output_dir=output_dir,
-            endpoint_url=endpoint_url,
-            max_retries=max_retries,
-            workers=workers,
-            validate_checksum=validate_checksum,
-        )
-    )
+    return task.run(params)

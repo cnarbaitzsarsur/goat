@@ -105,6 +105,14 @@ SECTION_OPPORTUNITIES = UISection(
     icon="location-marker",
     depends_on={"routing_mode": {"$ne": None}},
 )
+
+SECTION_DEMAND = UISection(
+    id="demand",
+    order=2,
+    icon="people",
+    depends_on={"routing_mode": {"$ne": None}},
+)
+
 SECTION_SCENARIO = UISection(
     id="scenario", order=4, icon="scenario", collapsible=True, collapsed=True
 )

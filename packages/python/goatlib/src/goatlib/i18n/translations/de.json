@@ -181,6 +181,10 @@
       "label": "Potenzialfeld",
       "description": "Feldname mit den Zielpotenzialwerten"
     },
+    "capacity_field": {
+      "label": "Kapazitätsfeld",
+      "description": "Feldname mit den Zielkapazitätswerten"
+    },
     "potential_constant": {
       "label": "Konstantes Potenzial",
       "description": "Verwenden Sie einen konstanten Wert für alle Ziele"
@@ -195,7 +199,7 @@
     },
     "reference_area_path": {
       "label": "Referenzgebiet",
-      "description": "Layer, der das Referenzgebiet für die Konnektivitätsanalyse definiert"
+      "description": "Layer, der das Referenzgebiet definiert, in dem die Analyse durchgeführt wird"
     },
     "demand_field": {
       "label": "Nachfragefeld",
@@ -204,6 +208,22 @@
     "demand_path": {
       "label": "Nachfrage-Layer",
       "description": "Layer mit den Nachfragepunkten"
+    },
+    "opportunity_path": {
+      "label": "Gelegenheiten-Layer",
+      "description": "Layer mit den Gelegenheitsstandorten"
+    },
+    "attractivity": {
+      "label": "Attraktivitätsfeld",
+      "description": "Feld des Gelegenheiten-Layers mit Attraktivitätswerten"
+    },
+    "attractiveness_param": {
+      "label": "Attraktivitätsparameter",
+      "description": "Exponent für die Attraktivität in der Huff-Modell-Gravitationsfunktion"
+    },
+    "distance_decay": {
+      "label": "Entfernungsabnahme",
+      "description": "Exponent für die Entfernungsabnahme in der Huff-Modell-Gravitationsfunktion"
     },
     "two_sfca_type": {
       "label": "2SFCA-Typ",
@@ -249,8 +269,20 @@
       "label": "Anzahl Cluster",
       "description": "Anzahl der zu erstellenden Zonen"
     },
+    "cluster_type": {
+      "label": "ClusterTyp",
+      "description": "Methode zur Erstellung der Zonen"
+    },
+    "size_method": {
+      "label": "Größenmethode",
+      "description": "Wählen Sie, wie die Zonen ausgeglichen werden: nach Punktanzahl oder nach einem numerischen Feldwert"
+    },
+    "size_field": {
+      "label": "Größenfeld",
+      "description": "Numerisches Feld für die Zonenbalancierung"
+    },
     "use_compactness": {
-      "label": "Zonenabstand begrenzen",
+      "label": "Eingeschränkter Zonenumgriff",
       "description": "Aktivieren um eine maximale Entfernung zwischen Punkten in derselben Zone festzulegen"
     },
     "max_distance_threshold": {
@@ -446,8 +478,12 @@
       "description": "Berechnung des Einzugsgebiets nach Zeit oder Entfernung"
     },
     "max_distance": {
-      "label": "Reiseentfernung",
-      "description": "Definieren Sie die maximale Reiseentfernung in Metern"
+      "label": "Maximale Entfernung",
+      "description": "Definieren Sie die maximale Entfernung in Metern"
+    },
+    "compactness_weight": {
+      "label": "Kompaktheitsgewicht",
+      "description": "Wie stark ausgedehnte Zonen bestraft werden. Das Gleichverteilungsgewicht ist fest auf 1 gesetzt."
     },
     "source_layer_id": {
       "label": "Eingabe-Punkt-Layer",
@@ -809,11 +845,11 @@
     },
     "heatmap_2sfca": {
       "title": "Heatmap 2SFCA",
-      "description": "Die 2SFCA-Methode (Two-Step Floating Catchment Area) bewertet die Erreichbarkeit von Dienstleistungen, indem sie Angebot und Nachfrage in einem zweistufigen Prozess berücksichtigt."
+      "description": "Die 2SFCA-Methode (Two-Step Floating Catchment Area) misst die Erreichbarkeit mehrerer Einrichtungen, indem zunächst für jeden Standort ein Kapazitäts-Nachfrage-Verhältnis berechnet und anschließend die erreichbaren Verhältnisse je Rasterzelle aufsummiert werden."
     },
     "huff_model": {
       "title": "Huff-Modell",
-      "description": "Das Huff-Modell ist ein räumliches Interaktionsmodell, das die Wahrscheinlichkeit vorhersagt, mit der Verbraucher bestimmte Einzelhandelsstandorte basierend auf der Attraktivität der Standorte und der Entfernung zu diesen Standorten besuchen."
+      "description": "Das Huff-Modell prognostiziert die Wahrscheinlichkeit, dass Verbraucher in einem Referenzgebiet bestimmte Standorte besuchen, basierend auf der Attraktivität der Standorte und der Entfernung zu diesen Standorten."
     },
     "oev_gueteklassen": {
       "title": "ÖV-Güteklassen",
@@ -926,18 +962,12 @@
     "e2sfca": "Erweiterte 2SFCA",
     "m2sfca": "Modifizierte 2SFCA"
   },
+  "size_method": {
+    "count": "Punktanzahl",
+    "field": "Feldwert"
+  },
   "cluster_type": {
     "kmean": "K-Means",
     "equal_size": "Ausgewogene Zonen"
-  },
-  "weight_method": {
-    "label": "Gewichtungsmethode",
-    "description": "Wählen Sie, wie die Zonen ausgeglichen werden: nach Punktanzahl oder nach einem numerischen Feldwert",
-    "count": "Anzahl (Gleiche Punkte)",
-    "field": "Feldwert"
-  },
-  "weight_field": {
-    "label": "Gewichtungsfeld",
-    "description": "Numerisches Feld als Gewichtung verwenden"
   }
 }

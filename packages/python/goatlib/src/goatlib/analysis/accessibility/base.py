@@ -353,6 +353,16 @@ class HeatmapToolBase(AnalysisTool):
             f"SELECT DISTINCT dest_id FROM {table} WHERE dest_id IS NOT NULL"
         ).fetchall()
         return [row[0] for row in result] if result else []
+    
+    def _extract_h3_ids(
+        self: Self, table: str, id_column: str = "dest_id"
+    ) -> list[int]:
+        """Extract unique destination H3 IDs from a table with h3_index."""
+        result = self.con.execute(
+            f"SELECT DISTINCT {id_column} FROM {table} WHERE {id_column} IS NOT NULL"
+        ).fetchall()
+        return [row[0] for row in result] if result else []
+
 
     def _export_h3_results(
         self: Self,

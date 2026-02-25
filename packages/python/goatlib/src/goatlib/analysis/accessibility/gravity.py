@@ -7,6 +7,7 @@ from goatlib.analysis.schemas.heatmap import (
     HeatmapGravityParams,
     ImpedanceFunction,
     OpportunityGravity,
+    PotentialType
 )
 from goatlib.io.utils import Metadata
 from goatlib.models.io import DatasetMetadata
@@ -269,7 +270,7 @@ class HeatmapGravityTool(HeatmapToolBase):
             return expr
 
         # --- Constant potential ---
-        if opp.potential_constant is not None:
+        if opp.potential_type ==PotentialType.constant:
             return str(float(opp.potential_constant))
 
         # --- Field-based potential ---

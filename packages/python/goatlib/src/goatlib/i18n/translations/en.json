@@ -181,6 +181,10 @@
       "label": "Potential Field",
       "description": "Field name containing destination potential values"
     },
+    "capacity_field": {
+      "label": "Capacity Field",
+      "description": "Field name containing destination capacity values"
+    },
     "potential_constant": {
       "label": "Constant Potential",
       "description": "Use a constant value for all destinations"
@@ -195,7 +199,7 @@
     },
     "reference_area_path": {
       "label": "Reference Area",
-      "description": "Layer defining the reference area for connectivity analysis"
+      "description": "Layer defining the reference area where the analysis would be conducted"
     },
     "demand_field": {
       "label": "Demand Field",
@@ -204,6 +208,22 @@
     "demand_path": {
       "label": "Demand Layer",
       "description": "Layer with demand points"
+    },
+    "opportunity_path": {
+      "label": "Opportunity Layer",
+      "description": "Layer with opportunity locations"
+    },
+    "attractivity": {
+      "label": "Attractivity Field",
+      "description": "Field from the opportunity layer containing attractivity values"
+    },
+    "attractiveness_param": {
+      "label": "Attractiveness Parameter",
+      "description": "Exponent for the attractiveness in the Huff model gravity function"
+    },
+    "distance_decay": {
+      "label": "Distance Decay",
+      "description": "Exponent for distance decay in the Huff model gravity function"
     },
     "two_sfca_type": {
       "label": "2SFCA Type",
@@ -249,8 +269,16 @@
       "label": "Number of Clusters",
       "description": "Number of zones to create"
     },
+    "cluster_type": {
+      "label": "Cluster Type",
+      "description": "Method for creating zones"
+    },
+    "size_method": {
+      "label": "Size Method",
+      "description": "Choose how zones are balanced: by point count or by a numeric field value"
+    },
     "use_compactness": {
-      "label": "Limit Zone Distance",
+      "label": "Limit Zone Area",
       "description": "Enable to set a maximum distance between points in the same zone"
     },
     "num_triangles": {
@@ -426,8 +454,12 @@
       "description": "Calculate catchment area by time or distance"
     },
     "max_distance": {
-      "label": "Travel distance",
+      "label": "maximum Distance",
       "description": "Define the maximum travel distance in meters"
+    },
+    "compactness_weight": {
+      "label": "Compactness Weight",
+      "description": "How strongly to penalize spread-out zones. The equal-size weight is fixed at 1."
     },
     "source_layer_id": {
       "label": "Input Point Layer",
@@ -797,7 +829,7 @@
     },
     "huff_model": {
       "title": "Huff Model",
-      "description": "The Huff Model is a spatial interaction model that predicts the probability of consumers visiting particular retail locations based on the attractiveness of the locations and the distance to those locations."
+      "description": "The Huff Model predicts the probability of consumers in a reference area visiting particular oppportunity based on the attractiveness of the locations and the distance to those locations."
     },
     "oev_gueteklassen": {
       "title": "ÖV-Güteklassen",
@@ -903,10 +935,10 @@
     "join": "Join Features",
     "geocoding": "Geocoding",
     "clustered_features": "Cluster Assignment",
-    "cluster_summary": "Cluster Summary"
+    "cluster_summary_name": "Cluster Summary"
   },
   "two_sfca_type": {
-    "2fsca": "2SFCA",
+    "twosfca": "2SFCA",
     "e2sfca": "Enhanced 2SFCA",
     "m2sfca": "Modified 2SFCA"
   },
@@ -914,14 +946,12 @@
     "kmean": "K-Means",
     "equal_size": "Balanced Zones"
   },
-  "weight_method": {
-    "label": "Weight Method",
-    "description": "Choose how zones are balanced: by point count or by a numeric field value",
+  "size_method": {
     "count": "Count (Equal Points)",
     "field": "Field Value"
   },
-  "weight_field": {
-    "label": "Weight Field",
-    "description": "Numeric field to use as balance weight"
+  "size_field": {
+    "label": "Size Field",
+    "description": "Numeric field to use for zone balancing"
   }
 }

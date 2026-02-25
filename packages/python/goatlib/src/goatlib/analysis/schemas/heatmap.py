@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from goatlib.analysis.schemas.ui import (
     SECTION_CONFIGURATION,
+    SECTION_DEMAND,
     SECTION_OPPORTUNITIES,
     SECTION_ROUTING,
     ui_field,
@@ -148,6 +149,7 @@ class HeatmapCommon(BaseModel):
         json_schema_extra=ui_sections(
             SECTION_ROUTING,
             SECTION_CONFIGURATION,
+            SECTION_DEMAND,
             SECTION_OPPORTUNITIES,
         )
     )
@@ -299,7 +301,7 @@ class OpportunityGravity(OpportunityBase):
         ),
     )
     potential_constant: float | None = Field(
-        None,
+        1.0,
         gt=0.0,
         description="Constant potential value applied to all features.",
         json_schema_extra=ui_field(
@@ -418,5 +420,218 @@ class HeatmapConnectivityParams(HeatmapCommon):
             label_key="reference_area_path",
             widget="layer-selector",
             widget_options={"geometry_types": ["Polygon", "MultiPolygon"]},
+        ),
+    )
+
+
+class Opportunity2SFCA(OpportunityBase):
+    """Opportunity dataset parameters for 2SFCA heatmaps."""
+
+    capacity_field: str = Field(
+        ...,
+        description="Field from the opportunity layer that contains the capacity value (e.g., number of beds, seats).",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=5,
+            label_key="capacity_field",
+            widget="field-selector",
+            widget_options={"source_layer": "input_path", "field_types": ["number"]},
+            visible_when={"input_path": {"$ne": None}},
+        ),
+    )
+    sensitivity: SensitivityValue = Field(
+        default=300000,
+        description="Sensitivity parameter for enhanced 2SFCA methods.",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=6,
+            visible_when={
+                "$and": [
+                    {"input_path": {"$ne": None}},
+                    {"two_sfca_type": {"$in": ["e2sfca", "m2sfca"]}},
+                ]
+            },
+        ),
+    )
+
+class TwoSFCAType(StrEnum):
+    """Type of 2SFCA method."""
+    twosfca = "twosfca"
+    e2sfca = "e2sfca"
+    m2sfca = "m2sfca"
+
+TwoSFCAType_LABELS: dict[str, str] = {
+    "twosfca": "two_sfca_type.twosfca",
+    "e2sfca": "two_sfca_type.e2sfca",
+    "m2sfca": "two_sfca_type.m2sfca",
+}
+
+
+class Heatmap2SFCAParams(HeatmapCommon):
+    """Parameters for 2SFCA heatmaps."""
+
+    two_sfca_type: TwoSFCAType = Field(
+        default=TwoSFCAType.twosfca,
+        description="Type of 2SFCA method to use.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=5,
+            enum_labels=TwoSFCAType_LABELS
+        ),
+    )
+
+    demand_path: str = Field(
+        ...,
+        description="Path to demand layer dataset.",
+        json_schema_extra=ui_field(
+            section="demand",
+            field_order=1,
+            label_key="demand_path",
+            widget="layer-selector",
+        ),
+    )
+    demand_field: str = Field(
+        ...,
+        description="Field from the demand layer that contains the demand value (e.g., population).",
+        json_schema_extra=ui_field(
+            section="demand",
+            field_order=4,
+            label_key="demand_field",
+            widget="field-selector",
+            widget_options={
+                "source_layer": "demand_path",
+                "field_types": ["number"],
+            },
+            visible_when={"demand_path": {"$ne": None}},
+        ),
+    )
+
+    impedance: ImpedanceFunction | None = Field(
+        default=ImpedanceFunction.gaussian,
+        description="Impedance function for distance decay weighting in enhanced 2SFCA methods.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=7,
+            visible_when={"two_sfca_type": {"$in": ["e2sfca", "m2sfca"]}},
+            widget_options={"default": "gaussian"},
+        ),
+    )
+
+    max_sensitivity: float = Field(
+        1000000,
+        gt=0.0,
+        description="Max sensitivity used for normalization.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=2,
+            hidden=True,  # Internal normalization constant
+        ),
+    )
+    opportunities: list[Opportunity2SFCA] = Field(
+        ...,
+        json_schema_extra=ui_field(
+            section="opportunities",
+            repeatable=True,
+            min_items=1,
+        ),
+    )
+
+
+class HuffmodelParams(HeatmapCommon):
+    """Parameters for Huff heatmaps."""
+
+    reference_area_path: str = Field(
+        ...,
+        description="Path to reference area polygon dataset",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=1,
+            label_key="reference_area_path",
+            widget="layer-selector",
+            widget_options={"geometry_types": ["Polygon", "MultiPolygon"]},
+        ),
+    )
+    demand_path: str = Field(
+        ...,
+        description="Path to demand layer dataset.",
+        json_schema_extra=ui_field(
+            section="demand",
+            field_order=2,
+            label_key="demand_path",
+            widget="layer-selector",
+        ),
+    )
+    demand_field: str = Field(
+        ...,
+        description="Field from the demand layer that contains the demand value (e.g., population).",
+        json_schema_extra=ui_field(
+            section="demand",
+            field_order=3,
+            label_key="demand_field",
+            widget="field-selector",
+            widget_options={
+                "source_layer": "demand_path",
+                "field_types": ["number"],
+            },
+            visible_when={"demand_path": {"$ne": None}},
+        ),
+    )
+
+
+    opportunity_path: str = Field(
+        ...,
+        description="Path to opportunity layer dataset.",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=4,
+            label_key="opportunity_path",
+            widget="layer-selector",
+        ),
+    )
+
+    attractivity: str = Field(
+        ...,
+        description="Field from the opportunity layer that has the attractivity value.",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=5,
+            label_key="attractivity",
+            widget="field-selector",
+            widget_options={"source_layer": "opportunity_path", "field_types": ["number"]},
+            visible_when={"opportunity_path": {"$ne": None}},
+        ),
+    )
+    max_cost: TravelTimeLimit = Field(
+        default=20,
+        description="Travel time limit in minutes.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=4,
+            label_key="max_cost",
+        ),
+    )
+
+
+    attractiveness_param: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="Attractiveness parameter for the Huff model gravity function.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=6,
+            label_key="attractiveness_param",
+            advanced=True,
+        ),
+    )
+
+    distance_decay: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Distance decay parameter for the Huff model gravity function.",
+        json_schema_extra=ui_field(
+            section="configuration",
+            field_order=7,
+            label_key="distance_decay",
+            advanced=True,
         ),
     )
