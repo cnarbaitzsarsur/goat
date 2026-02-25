@@ -181,6 +181,8 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
       if (uiMeta?.section === "output") continue;
       if (uiMeta?.section === "result") continue;
       if (uiMeta?.section === "scenario") continue;
+      if (uiMeta?.section === "starting") continue;
+      if (uiMeta?.section === "opportunities") continue;
 
       // Check visible_when - skip if not visible
       if (uiMeta?.visible_when && !evaluateCondition(uiMeta.visible_when, config)) {
@@ -232,6 +234,8 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
       if (uiMeta?.section === "output") continue;
       if (uiMeta?.section === "result") continue;
       if (uiMeta?.section === "scenario") continue;
+      if (uiMeta?.section === "starting") continue;
+      if (uiMeta?.section === "opportunities") continue;
 
       // Skip inputs with layer-related keywords or opportunities
       const keywords = (input.schema as { keywords?: string[] })?.keywords;

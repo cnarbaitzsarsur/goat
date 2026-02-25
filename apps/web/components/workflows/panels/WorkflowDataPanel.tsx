@@ -29,7 +29,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Map, { Layer as MapLayer, Source } from "react-map-gl/maplibre";
-import type { MapRef } from "react-map-gl/maplibre";
+import type { LayerProps, MapRef } from "react-map-gl/maplibre";
 import { useDispatch, useSelector } from "react-redux";
 
 import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
@@ -38,6 +38,8 @@ import { useDataset, useDatasetCollectionItems } from "@/lib/api/layers";
 import { getExtent } from "@/lib/api/processes";
 import { useTempLayerFeatures } from "@/lib/api/workflows";
 import { GEOAPI_BASE_URL, MAPTILER_KEY } from "@/lib/constants";
+import { rgbToHex } from "@/lib/utils/helpers";
+import { getMapboxStyleColor } from "@/lib/transformers/layer";
 import { DrawProvider } from "@/lib/providers/DrawProvider";
 import type { AppDispatch } from "@/lib/store";
 import { selectRequestMapView, selectRequestTableView } from "@/lib/store/workflow/selectors";
@@ -242,12 +244,14 @@ function getNodeDataInfo(
 interface WorkflowDataPanelProps {
   selectedNode: WorkflowNode | null;
   tempLayerIds?: Record<string, string>; // Map of node_id -> temp_layer_id for executed workflow
+  tempLayerProperties?: Record<string, Record<string, unknown>>; // Layer style properties by node ID
   workflowId?: string; // Current workflow ID
 }
 
 const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
   selectedNode,
   tempLayerIds = {},
+  tempLayerProperties = {},
   workflowId: _workflowId, // Available for future use (e.g., refreshing temp data)
 }) => {
   const { t } = useTranslation("common");
@@ -276,6 +280,55 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
 
   // Check if we're viewing a temp layer
   const isTempLayer = !!tempLayerId;
+
+  // Get style properties for the selected temp layer node
+  const nodeProperties = selectedNode ? tempLayerProperties[selectedNode.id] : undefined;
+
+  // Compute MapLibre paint styles from GOAT tool properties
+  // Uses Record<string, unknown> to match MapLibre's dynamic expression types
+  const tempLayerPaint = useMemo((): {
+    fill: Record<string, unknown>;
+    line: Record<string, unknown>;
+    circle: Record<string, unknown>;
+  } | null => {
+    if (!nodeProperties) return null;
+
+    // Create a minimal wrapper object for getMapboxStyleColor()
+    // That function accesses data.properties[...] so we just need { properties: ... }
+    const dataWrapper = { properties: nodeProperties } as Parameters<typeof getMapboxStyleColor>[0];
+
+    const fillColor = getMapboxStyleColor(dataWrapper, "color");
+    const strokeColor = getMapboxStyleColor(dataWrapper, "stroke_color");
+
+    const opacity = typeof nodeProperties.opacity === "number" ? nodeProperties.opacity : 0.7;
+    const filled = nodeProperties.filled !== false;
+    const stroked = nodeProperties.stroked !== false;
+    const strokeWidth = typeof nodeProperties.stroke_width === "number" ? nodeProperties.stroke_width : 2;
+    const radius = typeof nodeProperties.radius === "number" ? nodeProperties.radius : 6;
+
+    // Solid fallback color
+    const solidColor = nodeProperties.color
+      ? rgbToHex(nodeProperties.color as [number, number, number])
+      : undefined;
+
+    return {
+      fill: {
+        "fill-color": fillColor,
+        "fill-opacity": filled ? opacity : 0,
+      },
+      line: {
+        "line-color": stroked ? strokeColor : fillColor,
+        "line-width": stroked ? strokeWidth : 1.5,
+      },
+      circle: {
+        "circle-radius": radius,
+        "circle-color": fillColor,
+        "circle-opacity": filled ? opacity : 0,
+        "circle-stroke-width": stroked ? strokeWidth : 2,
+        "circle-stroke-color": stroked ? strokeColor : (solidColor || "#ffffff"),
+      },
+    };
+  }, [nodeProperties]);
 
   // Fetch layer data by layerId (only for regular layers, not temp)
   const { dataset: layer } = useDataset(!isTempLayer && layerId ? layerId : "");
@@ -642,17 +695,17 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
 
   // Toggle collapse
   const toggleCollapse = useCallback(() => {
-    setIsCollapsed((prev) => {
-      const newCollapsed = !prev;
-      // Track active view in Redux
-      if (newCollapsed) {
-        dispatch(setActiveDataPanelView(null));
-      } else {
-        dispatch(setActiveDataPanelView(tabValue === 0 ? "table" : "map"));
-      }
-      return newCollapsed;
-    });
-  }, [dispatch, tabValue]);
+    setIsCollapsed((prev) => !prev);
+  }, []);
+
+  // Sync data panel view to Redux after collapse state changes
+  useEffect(() => {
+    if (isCollapsed) {
+      dispatch(setActiveDataPanelView(null));
+    } else {
+      dispatch(setActiveDataPanelView(tabValue === 0 ? "table" : "map"));
+    }
+  }, [isCollapsed, tabValue, dispatch]);
 
   // Layer with visibility and workflow filter for map
   // Convert Layer to ProjectLayer-like format for MapViewer
@@ -835,42 +888,48 @@ const WorkflowDataPanel: React.FC<WorkflowDataPanelProps> = ({
                   <Source id="temp-layer-source" type="vector" tiles={[tempTileUrl]} maxzoom={14}>
                     {/* Polygon fill layer */}
                     <MapLayer
-                      id="temp-layer-fill"
-                      type="fill"
-                      source-layer="default"
-                      filter={["==", ["geometry-type"], "Polygon"]}
-                      paint={{
-                        "fill-color": theme.palette.primary.main,
-                        "fill-opacity": 0.3,
-                      }}
+                      {...({
+                        id: "temp-layer-fill",
+                        type: "fill",
+                        "source-layer": "default",
+                        filter: ["==", ["geometry-type"], "Polygon"],
+                        paint: tempLayerPaint?.fill ?? {
+                          "fill-color": theme.palette.primary.main,
+                          "fill-opacity": 0.3,
+                        },
+                      } as LayerProps)}
                     />
-                    {/* Polygon outline layer */}
+                    {/* Polygon outline / line layer */}
                     <MapLayer
-                      id="temp-layer-outline"
-                      type="line"
-                      source-layer="default"
-                      filter={[
-                        "any",
-                        ["==", ["geometry-type"], "Polygon"],
-                        ["==", ["geometry-type"], "LineString"],
-                      ]}
-                      paint={{
-                        "line-color": theme.palette.primary.main,
-                        "line-width": 2,
-                      }}
+                      {...({
+                        id: "temp-layer-outline",
+                        type: "line",
+                        "source-layer": "default",
+                        filter: [
+                          "any",
+                          ["==", ["geometry-type"], "Polygon"],
+                          ["==", ["geometry-type"], "LineString"],
+                        ],
+                        paint: tempLayerPaint?.line ?? {
+                          "line-color": theme.palette.primary.main,
+                          "line-width": 2,
+                        },
+                      } as LayerProps)}
                     />
                     {/* Point layer */}
                     <MapLayer
-                      id="temp-layer-points"
-                      type="circle"
-                      source-layer="default"
-                      filter={["==", ["geometry-type"], "Point"]}
-                      paint={{
-                        "circle-radius": 6,
-                        "circle-color": theme.palette.primary.main,
-                        "circle-stroke-width": 2,
-                        "circle-stroke-color": "#ffffff",
-                      }}
+                      {...({
+                        id: "temp-layer-points",
+                        type: "circle",
+                        "source-layer": "default",
+                        filter: ["==", ["geometry-type"], "Point"],
+                        paint: tempLayerPaint?.circle ?? {
+                          "circle-radius": 6,
+                          "circle-color": theme.palette.primary.main,
+                          "circle-stroke-width": 2,
+                          "circle-stroke-color": "#ffffff",
+                        },
+                      } as LayerProps)}
                     />
                   </Source>
                 </Map>

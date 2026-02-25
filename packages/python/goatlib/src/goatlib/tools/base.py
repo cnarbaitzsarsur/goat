@@ -717,10 +717,11 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
 
     def compute_quantile_breaks(
         self: Self,
-        table_name: str,
-        column_name: str,
+        table_name: str | None = None,
+        column_name: str = "",
         num_breaks: int = 6,
         strip_zeros: bool = True,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Compute quantile breaks for a column using DuckDB.
 
@@ -729,10 +730,16 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             column_name: Column name to compute breaks for
             num_breaks: Number of break values (default 6 to match 7-color palette)
             strip_zeros: Whether to exclude zero values (default True)
+            parquet_path: Alternative to table_name — read directly from parquet
 
         Returns:
             Dict with breaks, min, max, mean, std_dev, method, attribute
         """
+        # Allow computing from parquet file directly (for temp mode)
+        if not table_name and parquet_path:
+            table_name = f"read_parquet('{parquet_path}')"
+        if not table_name:
+            return None
         from goatlib.analysis.schemas.statistics import ClassBreakMethod
         from goatlib.analysis.statistics import calculate_class_breaks
 
@@ -769,6 +776,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         params: TParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return custom layer properties (style) for the output.
 
@@ -779,6 +787,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             params: Tool parameters
             metadata: Dataset metadata from analysis
             table_info: DuckLake table info (for computing quantile breaks)
+            parquet_path: Alternative to table_info — compute style from parquet file
 
         Returns:
             Style dict or None for default style
@@ -1156,18 +1165,27 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         return temp_path
 
     def is_layer_id(self: Self, value: str | None) -> bool:
-        """Check if a string value looks like a layer UUID.
+        """Check if a string value looks like a layer UUID or temp layer reference.
+
+        Recognizes:
+        - Standard UUIDs: 36 chars with format 8-4-4-4-12
+        - Temp layer IDs: "workflow_id:node_id:uuid" (from workflow tool chaining)
 
         Args:
             value: String to check
 
         Returns:
-            True if the value appears to be a UUID (36 chars with dashes)
+            True if the value appears to be a layer identifier
         """
         if not value or not isinstance(value, str):
             return False
         # UUIDs are 36 characters with format: 8-4-4-4-12
-        return len(value) == 36 and value.count("-") == 4
+        if len(value) == 36 and value.count("-") == 4:
+            return True
+        # Temp layer IDs contain colons (e.g. "workflow_id:node_id:uuid")
+        if ":" in value:
+            return True
+        return False
 
     def resolve_layer_paths(
         self: Self,
@@ -1208,8 +1226,10 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                     logger.info(f"Applied filter to layer {input_value}")
 
                 # Fetch layer name if item has 'name' field and it's not set
+                # Skip DB lookup for temp layer IDs (contain colons) — no DB record exists
                 item_dict = item.model_dump()
-                if "name" in item_dict and not item_dict.get("name"):
+                is_temp = ":" in input_value
+                if "name" in item_dict and not item_dict.get("name") and not is_temp:
                     layer_info = _get_or_create_event_loop().run_until_complete(
                         self.db_service.get_layer_info(input_value)
                     )
@@ -1281,6 +1301,11 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                 f"at {output_parquet}"
             )
 
+            # Compute style properties from parquet (works for both temp and permanent)
+            custom_properties = self.get_layer_properties(
+                params, metadata, parquet_path=output_parquet
+            )
+
             # Branch: temp_mode vs permanent mode
             if temp_mode:
                 # Temp mode: write to /data/temporary/, no DB records
@@ -1289,6 +1314,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                     output_parquet=output_parquet,
                     output_name=output_name,
                     output_layer_id=output_layer_id,
+                    properties=custom_properties,
                 )
 
                 # Close the database pool
@@ -1327,6 +1353,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
                     output_name=output_name,
                     metadata=metadata,
                     table_info=table_info,
+                    custom_properties=custom_properties,
                 )
             )
 
@@ -1373,6 +1400,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
         output_parquet: Path,
         output_name: str,
         output_layer_id: str,
+        properties: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Write result to temporary storage for workflow preview.
 
@@ -1385,6 +1413,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             output_parquet: Path to the output parquet file
             output_name: Display name for the layer
             output_layer_id: UUID for the layer (for identification)
+            properties: Optional layer style properties from the tool
 
         Returns:
             Dict with temp layer info (TempToolOutput format)
@@ -1412,6 +1441,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             layer_name=output_name,
             process_id=self.get_tool_type(),
             duckdb_con=self.duckdb_con,
+            properties=properties,
         )
 
         logger.info(
@@ -1450,6 +1480,7 @@ class BaseToolRunner(SimpleToolRunner, ABC, Generic[TParams]):
             "parquet_path": str(result.parquet_path),
             "pmtiles_path": str(result.pmtiles_path) if result.pmtiles_path else None,
             "wm_labels": wm_labels,
+            "properties": properties,
         }
 
     def _ingest_to_ducklake(

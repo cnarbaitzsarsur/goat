@@ -30,7 +30,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import duckdb
 from pydantic import BaseModel, Field
@@ -62,6 +62,9 @@ class TempLayerMetadata(BaseModel):
         None, description="Process/tool ID that created this layer"
     )
     size_bytes: int = Field(0, description="Size of the parquet file in bytes")
+    properties: dict[str, Any] | None = Field(
+        None, description="Layer style properties from the tool"
+    )
 
 
 @dataclass
@@ -148,6 +151,7 @@ class TempLayerWriter:
         layer_name: str,
         process_id: str | None = None,
         duckdb_con: duckdb.DuckDBPyConnection | None = None,
+        properties: dict[str, Any] | None = None,
     ) -> TempLayerResult:
         """Write a parquet file to temporary storage.
 
@@ -161,6 +165,7 @@ class TempLayerWriter:
             layer_name: Display name for the layer
             process_id: Optional process/tool ID
             duckdb_con: Optional DuckDB connection for reading parquet metadata
+            properties: Optional layer style properties from the tool
 
         Returns:
             TempLayerResult with paths and metadata
@@ -182,6 +187,10 @@ class TempLayerWriter:
             process_id=process_id,
             duckdb_con=duckdb_con,
         )
+
+        # Attach tool style properties if provided
+        if properties:
+            metadata.properties = properties
 
         # Generate PMTiles if enabled and has geometry
         pmtiles_path = None

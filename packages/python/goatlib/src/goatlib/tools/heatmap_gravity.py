@@ -64,6 +64,55 @@ class HeatmapGravityToolParams(
     )
     output_path: str | None = None  # type: ignore[assignment]
 
+    # Numbered opportunity layer inputs for workflow canvas handles (up to 3)
+    # These generate input handles on the workflow node; workflow_runner.py
+    # maps them to the `opportunities` list before tool execution.
+    opportunity_layer_1_id: str | None = Field(
+        None,
+        description="First opportunity layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=1,
+            widget="layer-selector",
+            label_key="opportunity_layer_1",
+        ),
+    )
+    opportunity_layer_1_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for first opportunity layer",
+        json_schema_extra=ui_field(section="opportunities", field_order=2, hidden=True),
+    )
+    opportunity_layer_2_id: str | None = Field(
+        None,
+        description="Second opportunity layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=3,
+            widget="layer-selector",
+            label_key="opportunity_layer_2",
+        ),
+    )
+    opportunity_layer_2_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for second opportunity layer",
+        json_schema_extra=ui_field(section="opportunities", field_order=4, hidden=True),
+    )
+    opportunity_layer_3_id: str | None = Field(
+        None,
+        description="Third opportunity layer (connected from workflow)",
+        json_schema_extra=ui_field(
+            section="opportunities",
+            field_order=5,
+            widget="layer-selector",
+            label_key="opportunity_layer_3",
+        ),
+    )
+    opportunity_layer_3_filter: dict[str, Any] | None = Field(
+        None,
+        description="CQL2-JSON filter for third opportunity layer",
+        json_schema_extra=ui_field(section="opportunities", field_order=6, hidden=True),
+    )
+
     # Override result_layer_name with tool-specific defaults
     result_layer_name: str | None = Field(
         default=get_default_layer_name("heatmap_gravity", "en"),
@@ -111,18 +160,21 @@ class HeatmapGravityToolRunner(BaseToolRunner[HeatmapGravityToolParams]):
         params: HeatmapGravityToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return heatmap style for gravity accessibility with quantile breaks."""
         color_field = "total_accessibility"
 
         # Compute quantile breaks from the DuckLake table (6 breaks for 7 colors)
         color_scale_breaks = None
-        if table_info and table_info.get("table_name"):
+        table_name = table_info["table_name"] if table_info else None
+        if table_name or parquet_path:
             color_scale_breaks = self.compute_quantile_breaks(
-                table_name=table_info["table_name"],
+                table_name=table_name,
                 column_name=color_field,
                 num_breaks=6,
                 strip_zeros=True,
+                parquet_path=parquet_path,
             )
             if color_scale_breaks:
                 logger.info(
@@ -149,19 +201,33 @@ class HeatmapGravityToolRunner(BaseToolRunner[HeatmapGravityToolParams]):
             params.opportunities, params.user_id, "input_path"
         )
 
+        # Auto-resolve od_matrix_path from routing_mode if not provided
+        od_matrix_path = params.od_matrix_path
+        if not od_matrix_path:
+            od_matrix_path = f"{self.settings.od_matrix_base_path}/{params.routing_mode.value}/"
+
         # Build analysis params
         analysis_params = HeatmapGravityParams(
             **params.model_dump(
                 exclude={
                     "output_path",
+                    "od_matrix_path",
                     "user_id",
                     "folder_id",
                     "project_id",
                     "output_name",
                     "opportunities",  # Use resolved opportunities
+                    # Exclude workflow-only numbered input fields
+                    "opportunity_layer_1_id",
+                    "opportunity_layer_1_filter",
+                    "opportunity_layer_2_id",
+                    "opportunity_layer_2_filter",
+                    "opportunity_layer_3_id",
+                    "opportunity_layer_3_filter",
                 }
             ),
             opportunities=resolved_opportunities,
+            od_matrix_path=od_matrix_path,
             output_path=str(output_path),
         )
 

@@ -15,7 +15,7 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,11 @@ class FinalizeLayerParams(ToolInputBase):
         description="Whether to delete temp files after finalization. "
         "Default False to keep files available for frontend preview. "
         "Cleanup happens at the start of the next workflow execution.",
+    )
+    properties: dict[str, Any] | None = Field(
+        default=None,
+        description="Layer style properties from the source tool. "
+        "If None, properties are read from metadata.json or defaults are used.",
     )
 
 
@@ -205,7 +210,7 @@ class FinalizeLayerRunner(BaseToolRunner[FinalizeLayerParams]):
         # Note: This runs sync inside the tool, we use run_sync wrapper
         import asyncio
 
-        async def create_db_records():
+        async def create_db_records() -> None:
             from goatlib.tools.db import ToolDatabaseService
 
             pool = await self.get_postgres_pool()
@@ -222,7 +227,10 @@ class FinalizeLayerRunner(BaseToolRunner[FinalizeLayerParams]):
             is_feature = bool(geometry_type)
             layer_type = "feature" if is_feature else "table"
 
-            # Create layer record - returns generated properties (with default style)
+            # Use style properties: params > metadata.json > default
+            layer_style = params.properties or metadata.get("properties")
+
+            # Create layer record
             layer_properties = await db_service.create_layer(
                 layer_id=new_layer_id,
                 user_id=user_id,
@@ -234,7 +242,7 @@ class FinalizeLayerRunner(BaseToolRunner[FinalizeLayerParams]):
                 extent_wkt=extent_wkt,
                 feature_count=feature_count,
                 size=parquet_path.stat().st_size,
-                properties=None,  # Will generate default style
+                properties=layer_style,
                 tool_type=metadata.get("process_id"),
                 job_id=None,
             )
@@ -303,6 +311,7 @@ def main(
     folder_id: str,
     layer_name: str | None = None,
     export_node_id: str | None = None,  # Used by workflow_runner for status tracking
+    properties: dict[str, Any] | None = None,
 ) -> dict:
     """Windmill entry point for finalize layer.
 
@@ -313,6 +322,7 @@ def main(
         project_id: Project UUID to add the layer to
         folder_id: Folder UUID (required by ToolInputBase)
         layer_name: Optional name override for the layer
+        properties: Optional layer style properties from the source tool
 
     Returns:
         Output dict with layer info
@@ -324,6 +334,7 @@ def main(
         project_id=project_id,
         folder_id=folder_id,
         layer_name=layer_name,
+        properties=properties,
     )
 
     runner = FinalizeLayerRunner()

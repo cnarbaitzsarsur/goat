@@ -55,7 +55,7 @@ exclude = ["venv", ".venv", "alembic"]
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "N", "I", "ANN"]
-ignore = ["E501", "ANN401"]
+ignore = ["E501", "ANN401", "ANN101", "ANN102"]
 per-file-ignores = { "*/__init__.py" = [
     "F401",
 ], "*/alembic/*" = [

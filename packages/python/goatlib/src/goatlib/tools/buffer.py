@@ -126,6 +126,7 @@ class BufferToolRunner(BaseToolRunner[BufferToolParams]):
         params: BufferToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return style for buffer with ordinal scale based on buffer_distance values.
 

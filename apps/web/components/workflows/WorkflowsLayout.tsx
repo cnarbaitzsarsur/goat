@@ -96,6 +96,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
     nodeExecutionInfo,
     tempLayerIds,
     exportedLayerIds,
+    tempLayerProperties,
     execute,
     cancel,
     finalizeNode,
@@ -351,6 +352,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
         nodeExecutionInfo={nodeExecutionInfo}
         tempLayerIds={tempLayerIds}
         exportedLayerIds={exportedLayerIds}
+        tempLayerProperties={tempLayerProperties}
         onSaveNode={finalizeNode}>
         <Box
           sx={{
@@ -396,6 +398,7 @@ const WorkflowsLayoutInner: React.FC<WorkflowsLayoutProps> = ({
             <WorkflowDataPanel
               selectedNode={selectedNode}
               tempLayerIds={tempLayerIds}
+              tempLayerProperties={tempLayerProperties}
               workflowId={selectedWorkflow?.id}
             />
           </Box>

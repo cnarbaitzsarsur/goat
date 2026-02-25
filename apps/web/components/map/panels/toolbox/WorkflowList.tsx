@@ -1,8 +1,10 @@
+import { AccountTree as WorkflowIcon } from "@mui/icons-material";
 import {
   Box,
   CircularProgress,
   List,
   ListItemButton,
+  ListItemIcon,
   ListItemSecondaryAction,
   ListItemText,
   Typography,
@@ -46,6 +48,9 @@ export default function WorkflowList({ onSelectWorkflow }: WorkflowListProps) {
     <List dense sx={{ pt: 0 }}>
       {workflows.map((workflow) => (
         <ListItemButton key={workflow.id} onClick={() => onSelectWorkflow(workflow.id)}>
+          <ListItemIcon sx={{ minWidth: 32 }}>
+            <WorkflowIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+          </ListItemIcon>
           <ListItemText
             primary={workflow.name}
             secondary={

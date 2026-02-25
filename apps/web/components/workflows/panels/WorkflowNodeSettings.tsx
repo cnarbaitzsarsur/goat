@@ -61,6 +61,10 @@ import Container from "@/components/map/panels/Container";
 import SectionHeader from "@/components/map/panels/common/SectionHeader";
 import SectionOptions from "@/components/map/panels/common/SectionOptions";
 import ToolsHeader from "@/components/map/panels/common/ToolsHeader";
+import {
+  getObjectDefaults,
+  processObjectProperties,
+} from "@/components/map/panels/toolbox/generic/inputs/RepeatableObjectInput";
 import { useWorkflowExecutionContext } from "@/components/workflows/context/WorkflowExecutionContext";
 import SaveDatasetDialog from "@/components/workflows/dialogs/SaveDatasetDialog";
 import VariableAwareInput from "@/components/workflows/inputs/VariableAwareInput";
@@ -434,9 +438,144 @@ export default function WorkflowNodeSettings({
     return mapping;
   }, [layers, allInputs, values, defaultValues, connectedLayerValues, getLayerIdFromSourceNode]);
 
+  // Heatmap tools with per-opportunity config
+  const isHeatmapOpportunityTool =
+    processId === "heatmap_gravity" || processId === "heatmap_closest_average";
+
   // Compute predicted columns for connected tool outputs
   // This enables field selectors to show fields from upstream tool nodes
+  // Declared here (before connectedOpportunities) because that useMemo references it
   const [predictedColumns, setPredictedColumns] = useState<Record<string, Record<string, string>>>({});
+
+  // Compute connected opportunity handles and per-opportunity field definitions
+  const connectedOpportunities = useMemo(() => {
+    if (!isHeatmapOpportunityTool || !process) return [];
+
+    // Find which opportunity_layer_N_id handles have incoming edges
+    const incomingEdges = edges.filter((e) => e.target === node.id);
+    const handles = ["opportunity_layer_1_id", "opportunity_layer_2_id", "opportunity_layer_3_id"];
+
+    return handles
+      .map((handle) => {
+        const edge = incomingEdges.find((e) => e.targetHandle === handle);
+        if (!edge) return null;
+
+        const sourceNode = nodes.find((n) => n.id === edge.source);
+        const sourceLabel = sourceNode
+          ? (sourceNode.data as { label?: string }).label || sourceNode.id
+          : edge.source;
+        const oppNum = handle.split("_")[2]; // "1", "2", or "3"
+
+        // Resolve source dataset ID for field selectors (e.g. potential_field)
+        // The opportunity schema uses source_layer="input_path", so we map input_path
+        // to the connected layer's dataset ID
+        let sourceDatasetId: string | undefined;
+        let sourcePredictedCols: Record<string, string> | undefined;
+        if (sourceNode?.data?.type === "dataset" && sourceNode.data.layerId) {
+          const layerIdValue = sourceNode.data.layerId as string;
+          const isUUID = layerIdValue.includes("-") && layerIdValue.length > 20;
+          if (isUUID) {
+            sourceDatasetId = layerIdValue;
+          } else {
+            const numericId = parseInt(layerIdValue, 10);
+            const layer = layers?.find((l) => l.id === numericId);
+            sourceDatasetId = layer?.layer_id;
+          }
+        } else if (sourceNode?.data?.type === "tool") {
+          // For tool source nodes, check for predicted/executed columns
+          if (workflowMetadata?.nodes[sourceNode.id]?.columns) {
+            sourcePredictedCols = workflowMetadata.nodes[sourceNode.id].columns!;
+          } else if (predictedColumns[handle]) {
+            // Fallback to predicted columns from the main prediction effect
+            // This handles un-executed tool sources (e.g. custom_sql → heatmap)
+            sourcePredictedCols = predictedColumns[handle];
+          }
+        }
+
+        return { handle, oppNum, sourceLabel, sourceDatasetId, sourcePredictedCols };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+  }, [isHeatmapOpportunityTool, process, edges, node.id, nodes, layers, workflowMetadata, predictedColumns]);
+
+  // Get per-opportunity field definitions from the opportunities schema
+  const opportunityFields = useMemo(() => {
+    if (!isHeatmapOpportunityTool || !process) return [];
+
+    // Find the 'opportunities' input and resolve its item schema
+    const oppInput = process.inputs?.opportunities;
+    if (!oppInput) return [];
+
+    const itemsRef = oppInput.schema?.items?.$ref;
+    if (!itemsRef || !process.$defs) return [];
+
+    const refName = itemsRef.replace("#/$defs/", "");
+    const itemSchema = process.$defs[refName];
+    if (!itemSchema) return [];
+
+    // Process properties into field definitions
+    const fields = processObjectProperties(itemSchema, process.$defs);
+
+    // Filter out input_path and input_layer_filter (these come from connections)
+    return fields.filter(
+      (f) => f.name !== "input_path" && f.name !== "input_layer_filter" && f.name !== "name"
+    );
+  }, [isHeatmapOpportunityTool, process]);
+
+  // Get default values for opportunity fields
+  const opportunityDefaults = useMemo(() => {
+    if (!isHeatmapOpportunityTool || !process) return {};
+
+    const oppInput = process.inputs?.opportunities;
+    if (!oppInput) return {};
+
+    const itemsRef = oppInput.schema?.items?.$ref;
+    if (!itemsRef || !process.$defs) return {};
+
+    const refName = itemsRef.replace("#/$defs/", "");
+    const itemSchema = process.$defs[refName];
+    if (!itemSchema) return {};
+
+    return getObjectDefaults(itemSchema, process.$defs);
+  }, [isHeatmapOpportunityTool, process]);
+
+  // Auto-persist opportunity defaults to node config when connections are made.
+  // Without this, default values are only used for display but never written to
+  // the config, so the workflow runner receives incomplete opportunity configs.
+  useEffect(() => {
+    if (connectedOpportunities.length === 0 || Object.keys(opportunityDefaults).length === 0) return;
+
+    let needsUpdate = false;
+    const newValues = { ...values };
+
+    for (const opp of connectedOpportunities) {
+      const prefix = `opportunity_${opp.oppNum}_`;
+      for (const [key, val] of Object.entries(opportunityDefaults)) {
+        if (key === "input_path" || key === "input_layer_filter" || key === "name") continue;
+        const configKey = `${prefix}${key}`;
+        if (newValues[configKey] === undefined) {
+          newValues[configKey] = val;
+          needsUpdate = true;
+        }
+      }
+    }
+
+    if (needsUpdate) {
+      setValues(newValues);
+      if (node.type === "tool") {
+        dispatch(
+          updateNode({
+            id: node.id,
+            changes: {
+              data: {
+                ...node.data,
+                config: newValues,
+              },
+            },
+          })
+        );
+      }
+    }
+  }, [connectedOpportunities, opportunityDefaults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset all state when node changes to ensure nodes are independent
   useEffect(() => {
@@ -536,6 +675,95 @@ export default function WorkflowNodeSettings({
         // Use layers directly since it's now a dependency
         const currentLayers = layers;
 
+        // Cache for resolved columns to avoid redundant API calls
+        const cache: Record<string, Record<string, string>> = {};
+
+        // Recursively resolve a node's output columns (same pattern as SqlToolSettings)
+        const resolveNodeColumns = async (
+          nodeId: string,
+          visited: Set<string>,
+        ): Promise<Record<string, string>> => {
+          if (visited.has(nodeId)) return {};
+          visited.add(nodeId);
+          if (cache[nodeId]) return cache[nodeId];
+
+          // Check execution metadata first
+          if (workflowMetadata?.nodes[nodeId]?.columns) {
+            const cols = workflowMetadata.nodes[nodeId].columns!;
+            cache[nodeId] = cols;
+            return cols;
+          }
+
+          const targetNode = nodes.find((n) => n.id === nodeId);
+          if (!targetNode) return {};
+
+          // Dataset node: use layer_id for prediction
+          if (targetNode.data?.type === "dataset" && targetNode.data.layerId) {
+            const layerIdValue = targetNode.data.layerId as string;
+            let layerForId = currentLayers?.find((l) => l.layer_id === layerIdValue);
+            if (!layerForId) {
+              const numericId = parseInt(layerIdValue, 10);
+              if (!isNaN(numericId)) {
+                layerForId = currentLayers?.find((l) => l.id === numericId);
+              }
+            }
+            // Return empty — dataset columns are resolved via layer_id in inputSchemas
+            // We store a marker so the caller knows to use layer_id instead
+            return {};
+          }
+
+          // Tool node: recursively resolve input schemas, then predict output
+          if (targetNode.data?.type === "tool") {
+            const targetProcessId = targetNode.data.processId as string;
+            const config = (targetNode.data.config || {}) as Record<string, unknown>;
+            const inputSchemas: Record<string, InputSchemaInfo> = {};
+            const incomingEdges = edges.filter((e) => e.target === nodeId);
+
+            for (const srcEdge of incomingEdges) {
+              const inputName = srcEdge.targetHandle || "input_layer_id";
+              const srcNode = nodes.find((n) => n.id === srcEdge.source);
+
+              if (srcNode?.data?.type === "dataset" && srcNode.data.layerId) {
+                // Dataset: resolve layer UUID for layer_id-based prediction
+                const layerIdValue = srcNode.data.layerId as string;
+                let layer = currentLayers?.find((l) => l.layer_id === layerIdValue);
+                if (!layer) {
+                  const numericId = parseInt(layerIdValue, 10);
+                  if (!isNaN(numericId)) {
+                    layer = currentLayers?.find((l) => l.id === numericId);
+                  }
+                }
+                const layerUuid = layer?.layer_id || layerIdValue;
+                if (layerUuid) {
+                  inputSchemas[inputName] = { layer_id: layerUuid };
+                }
+              } else if (srcNode?.data?.type === "tool") {
+                // Tool: recursively resolve its output columns
+                const sourceColumns = await resolveNodeColumns(srcEdge.source, visited);
+                if (Object.keys(sourceColumns).length > 0) {
+                  inputSchemas[inputName] = { columns: sourceColumns };
+                }
+              }
+            }
+
+            try {
+              const predicted = await predictNodeSchema(workflowId, {
+                process_id: targetProcessId,
+                input_schemas: inputSchemas,
+                params: config,
+              });
+              if (predicted.columns && Object.keys(predicted.columns).length > 0) {
+                cache[nodeId] = predicted.columns;
+                return predicted.columns;
+              }
+            } catch (error) {
+              console.warn(`Failed to predict schema for ${targetProcessId}:`, error);
+            }
+          }
+
+          return {};
+        };
+
         for (const input of allInputs) {
           if (input.inputType !== "layer") continue;
 
@@ -560,63 +788,11 @@ export default function WorkflowNodeSettings({
             continue;
           }
 
-          // If source is a tool node, try to predict its output schema
+          // Recursively resolve source node's output columns
           if (sourceNode.data?.type === "tool") {
-            const sourceProcessId = sourceNode.data.processId as string;
-            const sourceConfig = (sourceNode.data.config || {}) as Record<string, unknown>;
-
-            try {
-              // Build input schemas for the source node
-              const inputSchemas: Record<string, InputSchemaInfo> = {};
-
-              // Find source node's incoming edges to get its layer inputs
-              const sourceEdges = edges.filter((e) => e.target === sourceNode.id);
-
-              for (const srcEdge of sourceEdges) {
-                const srcSourceNode = nodes.find((n) => n.id === srcEdge.source);
-
-                if (srcSourceNode?.data?.type === "dataset" && srcSourceNode.data.layerId) {
-                  // Dataset node - use its layer ID
-                  const inputName = srcEdge.targetHandle || "input_layer_id";
-                  const layerIdValue = srcSourceNode.data.layerId as string;
-
-                  // layerId might be a UUID (layer_id) or a numeric project layer id
-                  // Try to find by UUID first, then by numeric ID
-                  let layer = currentLayers?.find((l) => l.layer_id === layerIdValue);
-                  if (!layer) {
-                    const numericId = parseInt(layerIdValue, 10);
-                    if (!isNaN(numericId)) {
-                      layer = currentLayers?.find((l) => l.id === numericId);
-                    }
-                  }
-
-                  // Use the layer_id (UUID) for the prediction, or use the value directly if it's already a UUID
-                  const layerUuid = layer?.layer_id || layerIdValue;
-                  if (layerUuid) {
-                    inputSchemas[inputName] = { layer_id: layerUuid };
-                  }
-                } else if (srcSourceNode?.data?.type === "tool") {
-                  // Another tool - check if executed
-                  const inputName = srcEdge.targetHandle || "input_layer_id";
-                  if (workflowMetadata?.nodes[srcSourceNode.id]?.columns) {
-                    inputSchemas[inputName] = {
-                      columns: workflowMetadata.nodes[srcSourceNode.id].columns!,
-                    };
-                  }
-                }
-              }
-
-              const predicted = await predictNodeSchema(workflowId, {
-                process_id: sourceProcessId,
-                input_schemas: inputSchemas,
-                params: sourceConfig,
-              });
-
-              if (predicted.columns && Object.keys(predicted.columns).length > 0) {
-                newPredicted[input.name] = predicted.columns;
-              }
-            } catch (error) {
-              console.warn(`Failed to predict schema for ${sourceProcessId}:`, error);
+            const cols = await resolveNodeColumns(sourceNode.id, new Set());
+            if (Object.keys(cols).length > 0) {
+              newPredicted[input.name] = cols;
             }
           }
         }
@@ -972,6 +1148,94 @@ export default function WorkflowNodeSettings({
                   </Box>
                 );
               })}
+
+              {/* Per-opportunity config for heatmap tools */}
+              {isHeatmapOpportunityTool && connectedOpportunities.length > 0 && (
+                <Box>
+                  <SectionHeader
+                    active={true}
+                    alwaysActive={true}
+                    label={t("opportunities")}
+                    icon={ICON_NAME.LOCATION_MARKER}
+                    disableAdvanceOptions={true}
+                    collapsed={false}
+                  />
+                  <SectionOptions
+                    active={true}
+                    collapsed={false}
+                    baseOptions={
+                      <Stack spacing={2}>
+                        {connectedOpportunities.map((opp, index) => {
+                          const prefix = `opportunity_${opp.oppNum}_`;
+
+                          // Build per-opportunity values from flat config
+                          const oppValues: Record<string, unknown> = { input_path: "__connected__" };
+                          for (const [key, val] of Object.entries(values)) {
+                            if (key.startsWith(prefix)) {
+                              oppValues[key.slice(prefix.length)] = val;
+                            }
+                          }
+                          // Apply defaults for missing values
+                          for (const [key, val] of Object.entries(opportunityDefaults)) {
+                            if (
+                              key !== "input_path" &&
+                              key !== "input_layer_filter" &&
+                              key !== "name" &&
+                              oppValues[key] === undefined
+                            ) {
+                              oppValues[key] = val;
+                            }
+                          }
+
+                          // Get visible fields based on current opportunity values
+                          const visibleFields = getVisibleInputs(opportunityFields, oppValues);
+
+                          return (
+                            <Box key={opp.handle}>
+                              {/* Opportunity header with source node label */}
+                              <Typography
+                                variant="body2"
+                                fontWeight="bold"
+                                color="text.secondary"
+                                sx={{ mb: 1 }}>
+                                {t("opportunity")} {index + 1}:{" "}
+                                <Typography component="span" variant="body2" fontWeight="normal">
+                                  {t(opp.sourceLabel, { defaultValue: opp.sourceLabel })}
+                                </Typography>
+                              </Typography>
+
+                              <Stack spacing={2}>
+                                {visibleFields.map((field) => (
+                                  <VariableAwareInput
+                                    key={`${prefix}${field.name}`}
+                                    input={field}
+                                    value={oppValues[field.name] ?? field.defaultValue}
+                                    onChange={(value) => handleInputChange(`${prefix}${field.name}`, value)}
+                                    formValues={oppValues}
+                                    schemaDefs={process.$defs}
+                                    layerDatasetIds={{
+                                      ...layerDatasetIds,
+                                      ...(opp.sourceDatasetId ? { input_path: opp.sourceDatasetId } : {}),
+                                    }}
+                                    predictedColumns={{
+                                      ...predictedColumns,
+                                      ...(opp.sourcePredictedCols ? { input_path: opp.sourcePredictedCols } : {}),
+                                    }}
+                                    variables={variables}
+                                  />
+                                ))}
+                              </Stack>
+
+                              {/* Divider between opportunities */}
+                              {index < connectedOpportunities.length - 1 && <Divider sx={{ mt: 2 }} />}
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                    }
+                  />
+                </Box>
+              )}
 
               {/* Dataset Details Section - shown for completed tools with results */}
               {nodeStatus === "completed" && hasTempResult && tempLayerMetadata && (

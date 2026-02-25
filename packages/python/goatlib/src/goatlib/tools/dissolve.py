@@ -179,6 +179,7 @@ class DissolveToolRunner(BaseToolRunner[DissolveToolParams]):
         params: DissolveToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return style for dissolved output.
 
@@ -201,12 +202,14 @@ class DissolveToolRunner(BaseToolRunner[DissolveToolParams]):
         # Use Teal for dissolve - represents aggregated data
         # If no statistics, this will still return a valid style with default color
         color_scale_breaks = None
-        if color_field and table_info and table_info.get("table_name"):
+        table_name = table_info["table_name"] if table_info else None
+        if color_field and (table_name or parquet_path):
             color_scale_breaks = self.compute_quantile_breaks(
-                table_name=table_info["table_name"],
+                table_name=table_name,
                 column_name=color_field,
                 num_breaks=6,
                 strip_zeros=True,
+                parquet_path=parquet_path,
             )
             if color_scale_breaks:
                 logger.info(

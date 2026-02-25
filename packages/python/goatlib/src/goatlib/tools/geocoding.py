@@ -258,6 +258,7 @@ class GeocodingToolRunner(BaseToolRunner[GeocodingToolParams]):
         params: GeocodingToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return style for geocoded output - simple point markers."""
         # Import here to avoid circular imports

@@ -15,7 +15,11 @@ from typing import Any, Self
 from pydantic import ConfigDict, Field
 
 from goatlib.analysis.geoanalysis.clustering_zones import ClusteringZones
-from goatlib.analysis.schemas.clustering import ClusteringParams, WeightMethod, WeightMethod_LABELS
+from goatlib.analysis.schemas.clustering import (
+    ClusteringParams,
+    WeightMethod,
+    WeightMethod_LABELS,
+)
 from goatlib.analysis.schemas.ui import (
     SECTION_INPUT,
     SECTION_OUTPUT,
@@ -244,7 +248,7 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
         self: Self,
         params: ClusteringZonesToolParams,
         temp_dir: Path,
-        **_kwargs,
+        **_kwargs: Any,
     ) -> tuple[Path, DatasetMetadata]:
         """Run zones clustering analysis.
 
@@ -315,6 +319,9 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
         Returns:
             Dict with primary layer info and secondary_layers list
         """
+        # Check if we're in temp mode (for workflow preview)
+        temp_mode = getattr(params, "temp_mode", False)
+
         output_layer_id_points = str(uuid_module.uuid4())
         output_layer_id_summary = str(uuid_module.uuid4())
 
@@ -326,11 +333,12 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
         )
 
         logger.info(
-            "Starting clustering tool: %s (user=%s, points=%s, summary=%s)",
+            "Starting clustering tool: %s (user=%s, points=%s, summary=%s, temp_mode=%s)",
             self.__class__.__name__,
             params.user_id,
             output_layer_id_points,
             output_layer_id_summary,
+            temp_mode,
         )
 
         # Initialize db_service
@@ -344,6 +352,23 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
             # Step 1: Run analysis (creates both outputs)
             output_parquet_points, metadata_points = self.process(params, temp_path)
             summary_result = self._summary_result
+
+            # Compute style from params (static, no data dependency)
+            points_style = self.get_layer_properties(
+                params, metadata_points, parquet_path=output_parquet_points
+            )
+
+            # Temp mode: write primary (points) output only, skip summary and DB records
+            if temp_mode:
+                result = self._write_temp_result(
+                    params=params,
+                    output_parquet=output_parquet_points,
+                    output_name=output_name_points,
+                    output_layer_id=output_layer_id_points,
+                    properties=points_style,
+                )
+                asyncio.get_event_loop().run_until_complete(self._close_db_service())
+                return result
 
             # Step 2: Ingest primary points layer to DuckLake
             table_info_points = self._ingest_to_ducklake(
@@ -378,9 +403,6 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
                 logger.info(
                     "Summary DuckLake table: %s", table_info_summary["table_name"]
                 )
-
-            # Get cluster color style for points
-            points_style = self.get_layer_properties(params, metadata_points)
 
             # Refresh database pool
             asyncio.get_event_loop().run_until_complete(self._close_db_service())
@@ -495,6 +517,7 @@ class ZonesClusteringToolRunner(BaseToolRunner[ClusteringZonesToolParams]):
         params: ClusteringZonesToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Get layer properties for styling the clustering results."""
         color_field = "cluster_id"

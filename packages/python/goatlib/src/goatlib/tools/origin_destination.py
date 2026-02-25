@@ -304,14 +304,16 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
 
     def get_weight_color_style(
         self: Self,
-        table_name: str,
+        table_name: str | None = None,
         weight_column: str = "weight",
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any]:
         """Generate a color style based on weight values using quantile breaks.
 
         Args:
             table_name: DuckLake table path
             weight_column: Column to base colors on
+            parquet_path: Alternative to table_name — compute from parquet
 
         Returns:
             Layer properties dict with color_field configuration
@@ -347,6 +349,7 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
             column_name=weight_column,
             num_breaks=4,  # 4 breaks create 5 bins matching 5 colors
             strip_zeros=True,
+            parquet_path=parquet_path,
         )
 
         if not breaks_info:
@@ -370,14 +373,16 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
 
     def get_point_weight_style(
         self: Self,
-        table_name: str,
+        table_name: str | None = None,
         weight_column: str = "weight",
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any]:
         """Generate a color and size style for points based on weight.
 
         Args:
             table_name: DuckLake table path
             weight_column: Column to base styling on
+            parquet_path: Alternative to table_name — compute from parquet
 
         Returns:
             Layer properties dict with color and radius configuration
@@ -413,6 +418,7 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
             column_name=weight_column,
             num_breaks=4,  # 4 breaks create 5 bins matching 5 colors
             strip_zeros=True,
+            parquet_path=parquet_path,
         )
 
         if not breaks_info:
@@ -448,6 +454,9 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
         Returns:
             Dict with primary layer info and secondary_layers list
         """
+        # Check if we're in temp mode (for workflow preview)
+        temp_mode = getattr(params, "temp_mode", False)
+
         output_layer_id_lines = str(uuid_module.uuid4())
         output_layer_id_points = str(uuid_module.uuid4())
 
@@ -462,7 +471,8 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
 
         logger.info(
             f"Starting OD tool: {self.__class__.__name__} "
-            f"(user={params.user_id}, lines={output_layer_id_lines}, points={output_layer_id_points})"
+            f"(user={params.user_id}, lines={output_layer_id_lines}, "
+            f"points={output_layer_id_points}, temp_mode={temp_mode})"
         )
 
         # Initialize db_service
@@ -481,6 +491,26 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
                 f"Analysis complete: lines={output_parquet_lines}, points={output_parquet_points}"
             )
 
+            # Compute styles from parquet (works for both temp and permanent)
+            lines_style = self.get_weight_color_style(
+                weight_column="weight", parquet_path=output_parquet_lines
+            )
+            points_style = self.get_point_weight_style(
+                weight_column="weight", parquet_path=output_parquet_points
+            )
+
+            # Temp mode: write primary (lines) output only, skip DB records
+            if temp_mode:
+                result = self._write_temp_result(
+                    params=params,
+                    output_parquet=output_parquet_lines,
+                    output_name=output_name_lines,
+                    output_layer_id=output_layer_id_lines,
+                    properties=lines_style,
+                )
+                asyncio.get_event_loop().run_until_complete(self._close_db_service())
+                return result
+
             # Step 2: Ingest lines to DuckLake
             table_info_lines = self._ingest_to_ducklake(
                 user_id=params.user_id,
@@ -496,14 +526,6 @@ class OriginDestinationToolRunner(BaseToolRunner[OriginDestinationToolParams]):
                 parquet_path=Path(output_parquet_points),
             )
             logger.info(f"Points DuckLake table: {table_info_points['table_name']}")
-
-            # Get weight-based styles
-            lines_style = self.get_weight_color_style(
-                table_info_lines["table_name"], "weight"
-            )
-            points_style = self.get_point_weight_style(
-                table_info_points["table_name"], "weight"
-            )
 
             # Refresh database pool
             asyncio.get_event_loop().run_until_complete(self._close_db_service())

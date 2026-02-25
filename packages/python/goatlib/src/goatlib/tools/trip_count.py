@@ -198,18 +198,21 @@ class TripCountToolRunner(BaseToolRunner[TripCountToolParams]):
         params: TripCountToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return trip count style with graduated color scale for total trips."""
         color_field = "total"
 
         # Compute quantile breaks from the DuckLake table (6 breaks for 7 colors)
         color_scale_breaks = None
-        if table_info and table_info.get("table_name"):
+        table_name = table_info["table_name"] if table_info else None
+        if table_name or parquet_path:
             color_scale_breaks = self.compute_quantile_breaks(
-                table_name=table_info["table_name"],
+                table_name=table_name,
                 column_name=color_field,
                 num_breaks=6,
                 strip_zeros=True,
+                parquet_path=parquet_path,
             )
             if color_scale_breaks:
                 logger.info(

@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
 
-import { ICON_NAME } from "@p4b/ui/components/Icon";
+import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
 import { dismissJob, useJobs } from "@/lib/api/processes";
 import { useProject } from "@/lib/api/projects";
@@ -348,12 +348,22 @@ export default function WorkflowRunner({ workflowId, onBack, onClose }: Workflow
             </Typography>
           )}
 
+          {/* Empty state when no variables and no progress */}
+          {variables.length === 0 && !hasProgress && (
+            <Stack alignItems="center" spacing={1} sx={{ py: 4 }}>
+              <Icon iconName={ICON_NAME.VARIABLE} fontSize="small" htmlColor={theme.palette.text.secondary} />
+              <Typography variant="body2" color="text.secondary" textAlign="center">
+                {t("workflow_no_variables")}
+              </Typography>
+            </Stack>
+          )}
+
           {/* Variables Section */}
           {variables.length > 0 && (
             <Box>
               <SectionHeader
                 label={t("workflow_variables")}
-                icon={ICON_NAME.SLIDERS}
+                icon={ICON_NAME.VARIABLE}
                 active={true}
                 alwaysActive={true}
                 disableAdvanceOptions={true}

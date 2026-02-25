@@ -261,6 +261,7 @@ class AggregatePointsToolRunner(BaseToolRunner[AggregatePointsToolParams]):
         params: AggregatePointsToolParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return style for aggregated output with quantile breaks."""
         # Determine the value field based on the statistics operation
@@ -278,12 +279,14 @@ class AggregatePointsToolRunner(BaseToolRunner[AggregatePointsToolParams]):
 
         # Compute quantile breaks from the DuckLake table
         color_scale_breaks = None
-        if table_info and table_info.get("table_name"):
+        table_name = table_info["table_name"] if table_info else None
+        if table_name or parquet_path:
             color_scale_breaks = self.compute_quantile_breaks(
-                table_name=table_info["table_name"],
+                table_name=table_name,
                 column_name=color_field,
                 num_breaks=6,
                 strip_zeros=True,
+                parquet_path=parquet_path,
             )
             if color_scale_breaks:
                 logger.info(

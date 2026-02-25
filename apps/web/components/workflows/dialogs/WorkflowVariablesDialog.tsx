@@ -2,7 +2,6 @@
 
 import {
   Add as AddIcon,
-  DataObject as VariablesIcon,
   DeleteOutline as DeleteIcon,
 } from "@mui/icons-material";
 import {
@@ -12,6 +11,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   IconButton,
   MenuItem,
   Select,
@@ -24,6 +24,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
+
+import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
 
 import type { AppDispatch } from "@/lib/store";
 import { selectVariables } from "@/lib/store/workflow/selectors";
@@ -84,7 +86,7 @@ const WorkflowVariablesDialog: React.FC<WorkflowVariablesDialogProps> = ({ open,
     const newVar: WorkflowVariable = {
       id: `var-${uuidv4()}`,
       name: "",
-      type: "string",
+      type: "number",
       defaultValue: "",
       order: localVars.length,
     };
@@ -130,93 +132,110 @@ const WorkflowVariablesDialog: React.FC<WorkflowVariablesDialogProps> = ({ open,
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <VariablesIcon fontSize="small" />
+      <DialogTitle>
         {t("workflow_variables")}
       </DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ px: 0 }}>
         {localVars.length === 0 ? (
-          <Stack alignItems="center" spacing={1.5} sx={{ py: 4 }}>
-            <VariablesIcon sx={{ fontSize: 40, color: "text.disabled" }} />
+          <Stack alignItems="center" spacing={1} sx={{ py: 4 }}>
+            <Icon iconName={ICON_NAME.VARIABLE} fontSize="small" htmlColor="text.secondary" />
             <Typography variant="body2" color="text.secondary" textAlign="center">
               {t("workflow_variable_none_defined")}
             </Typography>
           </Stack>
         ) : (
-          <Stack spacing={1} sx={{ mt: 1 }}>
+          <Stack spacing={0} sx={{ mt: 1 }}>
             {/* Header row */}
-            <Box sx={{ display: "flex", gap: 1, px: 0.5 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ flex: 2 }}>
+            <Box sx={{ display: "flex", gap: 1, px: 3, mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ flex: 2 }}>
                 {t("workflow_variable_name")}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ width: 100 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ width: 100 }}>
                 {t("workflow_variable_type")}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ flex: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ flex: 1.5 }}>
                 {t("workflow_variable_default")}
               </Typography>
               <Box sx={{ width: 36 }} />
             </Box>
 
+            <Divider />
+
             {/* Variable rows */}
-            {localVars.map((variable) => (
-              <Box key={variable.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                <TextField
-                  size="small"
-                  placeholder="variable_name"
-                  value={variable.name}
-                  onChange={(e) =>
-                    handleUpdate(variable.id, { name: e.target.value.replace(/\s/g, "_") })
-                  }
-                  error={!!errors[variable.id]}
-                  helperText={errors[variable.id]}
-                  sx={{ flex: 2 }}
-                  inputProps={{ style: { fontSize: "0.8125rem", fontFamily: "monospace" } }}
-                />
-                <Select
-                  size="small"
-                  value={variable.type}
-                  onChange={(e) =>
-                    handleUpdate(variable.id, {
-                      type: e.target.value as "string" | "number",
-                      defaultValue: "",
-                    })
-                  }
-                  sx={{ width: 100, fontSize: "0.8125rem" }}>
-                  <MenuItem value="string">String</MenuItem>
-                  <MenuItem value="number">Number</MenuItem>
-                </Select>
-                <TextField
-                  size="small"
-                  placeholder={variable.type === "number" ? "0" : "value"}
-                  type={variable.type === "number" ? "number" : "text"}
-                  value={variable.defaultValue ?? ""}
-                  onChange={(e) => handleUpdate(variable.id, { defaultValue: e.target.value })}
-                  sx={{ flex: 1.5 }}
-                  inputProps={{ style: { fontSize: "0.8125rem" } }}
-                />
-                <Tooltip title={t("delete")}>
-                  <IconButton size="small" onClick={() => handleRemove(variable.id)} sx={{ mt: 0.25 }}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Box>
+            {localVars.map((variable, index) => (
+              <React.Fragment key={variable.id}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: 3, py: 1.5 }}>
+                  <TextField
+                    size="small"
+                    placeholder="variable_name"
+                    value={variable.name}
+                    onChange={(e) =>
+                      handleUpdate(variable.id, { name: e.target.value.replace(/\s/g, "_") })
+                    }
+                    error={!!errors[variable.id]}
+                    helperText={errors[variable.id]}
+                    sx={{ flex: 2 }}
+                    inputProps={{ style: { fontSize: "0.8125rem", fontFamily: "monospace" } }}
+                  />
+                  <Select
+                    size="small"
+                    value={variable.type}
+                    onChange={(e) =>
+                      handleUpdate(variable.id, {
+                        type: e.target.value as "string" | "number",
+                        defaultValue: "",
+                      })
+                    }
+                    sx={{ width: 100, fontSize: "0.8125rem" }}>
+                    <MenuItem value="string">String</MenuItem>
+                    <MenuItem value="number">Number</MenuItem>
+                  </Select>
+                  <TextField
+                    size="small"
+                    placeholder={variable.type === "number" ? "0" : "value"}
+                    type={variable.type === "number" ? "number" : "text"}
+                    value={variable.defaultValue ?? ""}
+                    onChange={(e) => handleUpdate(variable.id, { defaultValue: e.target.value })}
+                    sx={{ flex: 1.5 }}
+                    inputProps={{ style: { fontSize: "0.8125rem" } }}
+                  />
+                  <Tooltip title={t("delete")}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleRemove(variable.id)}
+                      color="error"
+                      sx={{ mt: 0.25 }}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                {index < localVars.length - 1 && <Divider />}
+              </React.Fragment>
             ))}
           </Stack>
         )}
 
         {/* Add button */}
-        <Button
-          startIcon={<AddIcon />}
-          onClick={handleAdd}
-          size="small"
-          sx={{ mt: 2, textTransform: "none" }}>
-          {t("workflow_variable_add")}
-        </Button>
+        {localVars.length > 0 && <Divider />}
+        <Stack alignItems="center" sx={{ mt: 2 }}>
+          <Button
+            startIcon={<AddIcon />}
+            onClick={handleAdd}
+            size="small"
+            variant="text"
+            sx={{ textTransform: "none" }}>
+            {t("workflow_variable_add")}
+          </Button>
+        </Stack>
       </DialogContent>
-      <DialogActions sx={{ pb: 2 }}>
-        <Button onClick={handleDone} variant="text" sx={{ borderRadius: 0 }}>
+      <DialogActions disableSpacing sx={{ pb: 2 }}>
+        <Button onClick={onClose} variant="text" sx={{ borderRadius: 0 }}>
           <Typography variant="body2" fontWeight="bold">
+            {t("cancel")}
+          </Typography>
+        </Button>
+        <Button onClick={handleDone} variant="text" color="primary" sx={{ borderRadius: 0 }}>
+          <Typography variant="body2" fontWeight="bold" color="inherit">
             {t("done")}
           </Typography>
         </Button>

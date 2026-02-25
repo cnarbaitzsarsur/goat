@@ -16,6 +16,7 @@ interface WorkflowExecutionContextValue {
   nodeExecutionInfo: Record<string, NodeExecutionInfo>;
   tempLayerIds: Record<string, string>;
   exportedLayerIds: Record<string, string>;
+  tempLayerProperties: Record<string, Record<string, unknown>>;
   onSaveNode?: (nodeId: string, layerName?: string) => Promise<string | null>;
 }
 
@@ -25,6 +26,7 @@ const WorkflowExecutionContext = createContext<WorkflowExecutionContextValue>({
   nodeExecutionInfo: {},
   tempLayerIds: {},
   exportedLayerIds: {},
+  tempLayerProperties: {},
 });
 
 export interface WorkflowExecutionProviderProps {
@@ -34,6 +36,7 @@ export interface WorkflowExecutionProviderProps {
   nodeExecutionInfo: Record<string, NodeExecutionInfo>;
   tempLayerIds: Record<string, string>;
   exportedLayerIds: Record<string, string>;
+  tempLayerProperties: Record<string, Record<string, unknown>>;
   onSaveNode?: (nodeId: string, layerName?: string) => Promise<string | null>;
 }
 
@@ -63,12 +66,14 @@ export const WorkflowExecutionProvider: React.FC<WorkflowExecutionProviderProps>
   nodeExecutionInfo,
   tempLayerIds,
   exportedLayerIds,
+  tempLayerProperties,
   onSaveNode,
 }) => {
   const stableNodeStatuses = useStableRecord(nodeStatuses);
   const stableNodeExecutionInfo = useStableRecord(nodeExecutionInfo);
   const stableTempLayerIds = useStableRecord(tempLayerIds);
   const stableExportedLayerIds = useStableRecord(exportedLayerIds);
+  const stableTempLayerProperties = useStableRecord(tempLayerProperties);
 
   const value = useMemo(
     () => ({
@@ -77,9 +82,10 @@ export const WorkflowExecutionProvider: React.FC<WorkflowExecutionProviderProps>
       nodeExecutionInfo: stableNodeExecutionInfo,
       tempLayerIds: stableTempLayerIds,
       exportedLayerIds: stableExportedLayerIds,
+      tempLayerProperties: stableTempLayerProperties,
       onSaveNode,
     }),
-    [isExecuting, stableNodeStatuses, stableNodeExecutionInfo, stableTempLayerIds, stableExportedLayerIds, onSaveNode]
+    [isExecuting, stableNodeStatuses, stableNodeExecutionInfo, stableTempLayerIds, stableExportedLayerIds, stableTempLayerProperties, onSaveNode]
   );
 
   return (

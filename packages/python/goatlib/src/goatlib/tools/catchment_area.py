@@ -448,10 +448,11 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         params: CatchmentAreaWindmillParams,
         metadata: DatasetMetadata,
         table_info: dict[str, Any] | None = None,
+        parquet_path: Path | str | None = None,
     ) -> dict[str, Any] | None:
         """Return style for catchment area with ordinal scale based on minute values.
 
-        Queries unique minute values from the DuckLake table and builds a color_map.
+        Queries unique minute values from the table or parquet and builds a color_map.
         Uses the shared get_ordinal_polygon_style utility with color interpolation.
         """
         from goatlib.analysis.schemas.statistics import SortOrder
@@ -461,13 +462,20 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         # Use 'minute' as the color field
         color_field = "minute"
 
-        # Query actual unique minute values from the table
-        unique_values: list[int | float] = []
+        # Determine table expression: DuckLake table or read_parquet()
+        table_expr = None
         if table_info and table_info.get("table_name"):
+            table_expr = table_info["table_name"]
+        elif parquet_path:
+            table_expr = f"read_parquet('{parquet_path}')"
+
+        # Query actual unique minute values
+        unique_values: list[int | float] = []
+        if table_expr:
             try:
                 result = calculate_unique_values(
                     con=self.duckdb_con,
-                    table_name=table_info["table_name"],
+                    table_name=table_expr,
                     attribute=color_field,
                     order=SortOrder.ascendent,
                     limit=20,  # Allow more values with interpolation
@@ -875,6 +883,9 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
         from goatlib.tools.schemas import ToolOutputBase
         from goatlib.tools.style import get_starting_points_style
 
+        # Check if we're in temp mode (for workflow preview)
+        temp_mode = getattr(params, "temp_mode", False)
+
         # Main polygon layer - use result_layer_name, then output_name, then default
         output_layer_id = str(uuid_module.uuid4())
         output_name = (
@@ -889,7 +900,8 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
 
         logger.info(
             f"Starting tool: {self.__class__.__name__} "
-            f"(user={params.user_id}, output={output_layer_id})"
+            f"(user={params.user_id}, output={output_layer_id}, "
+            f"temp_mode={temp_mode})"
         )
 
         # Initialize db_service
@@ -906,6 +918,23 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
                 f"Analysis complete: {metadata.feature_count or 0} features "
                 f"at {output_parquet}"
             )
+
+            # Compute style from parquet (works for both temp and permanent)
+            custom_properties = self.get_layer_properties(
+                params, metadata, parquet_path=output_parquet
+            )
+
+            # Temp mode: write primary output only, skip starting points and DB records
+            if temp_mode:
+                result = self._write_temp_result(
+                    params=params,
+                    output_parquet=output_parquet,
+                    output_name=output_name,
+                    output_layer_id=output_layer_id,
+                    properties=custom_properties,
+                )
+                asyncio.get_event_loop().run_until_complete(self._close_db_service())
+                return result
 
             # Step 2: Ingest polygon layer to DuckLake
             table_info = self._ingest_to_ducklake(
@@ -965,6 +994,7 @@ class CatchmentAreaToolRunner(BaseToolRunner[CatchmentAreaWindmillParams]):
                     output_name=output_name,
                     metadata=metadata,
                     table_info=table_info,
+                    custom_properties=custom_properties,
                 )
             )
 

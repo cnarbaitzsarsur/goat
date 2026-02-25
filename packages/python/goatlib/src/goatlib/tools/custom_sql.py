@@ -13,7 +13,6 @@ DDL/DML statements are rejected.
 
 import logging
 import re
-import tempfile
 from pathlib import Path
 from typing import Any, Self
 
@@ -21,7 +20,6 @@ import duckdb
 from pydantic import ConfigDict, Field
 
 from goatlib.analysis.schemas.ui import (
-    SECTION_INPUT,
     SECTION_OUTPUT,
     SECTION_RESULT,
     UISection,

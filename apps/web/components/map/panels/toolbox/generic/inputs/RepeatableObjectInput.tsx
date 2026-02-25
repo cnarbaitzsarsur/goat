@@ -37,7 +37,7 @@ interface RepeatableObjectInputProps {
 /**
  * Process object schema properties into ProcessedInput array
  */
-function processObjectProperties(
+export function processObjectProperties(
   objectSchema: OGCInputSchema,
   schemaDefs?: Record<string, OGCInputSchema>
 ): ProcessedInput[] {
@@ -127,7 +127,7 @@ function processObjectProperties(
 /**
  * Get default values for a new object item
  */
-function getObjectDefaults(
+export function getObjectDefaults(
   objectSchema: OGCInputSchema,
   schemaDefs?: Record<string, OGCInputSchema>
 ): Record<string, unknown> {

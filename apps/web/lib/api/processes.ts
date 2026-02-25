@@ -82,7 +82,8 @@ export type JobType =
   | "aggregate_polygon"
   | "trip_count_station"
   | "origin_destination"
-  | "nearby_station_access";
+  | "nearby_station_access"
+  | "finalize_layer";
 
 /**
  * OGC Job status response

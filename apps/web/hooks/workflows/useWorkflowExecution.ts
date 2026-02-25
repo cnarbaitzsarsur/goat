@@ -41,6 +41,8 @@ interface WorkflowExecutionState {
   tempLayerIds: Record<string, string>;
   /** Exported (permanent) layer IDs by export node ID */
   exportedLayerIds: Record<string, string>;
+  /** Layer style properties by node ID (from tool results) */
+  tempLayerProperties: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -53,6 +55,7 @@ interface NodeResult {
   status?: string;
   error?: string;
   duration_ms?: number; // Execution duration in milliseconds
+  properties?: Record<string, unknown>; // Layer style properties from tool
 }
 
 /**
@@ -102,6 +105,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     nodeExecutionInfo: {},
     tempLayerIds: {},
     exportedLayerIds: {},
+    tempLayerProperties: {},
   });
 
   /**
@@ -186,6 +190,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       nodeExecutionInfo: initialExecutionInfo,
       tempLayerIds: initialTempLayerIds,
       exportedLayerIds: {},
+      tempLayerProperties: {},
     });
 
     // Ensure the job is in the Redux running jobs list for polling
@@ -236,6 +241,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       nodeExecutionInfo: initialExecutionInfo,
       tempLayerIds: {},
       exportedLayerIds: {},
+      tempLayerProperties: {},
     }));
 
     try {
@@ -430,6 +436,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       const results = job.result?.node_results as Record<string, NodeResult> | undefined;
       const tempLayerIds: Record<string, string> = {};
       const exportedLayerIds: Record<string, string> = {};
+      const tempLayerProperties: Record<string, Record<string, unknown>> = {};
 
       // Build execution info with timing from node_results
       const finalExecutionInfo: Record<string, NodeExecutionInfo> = {};
@@ -442,6 +449,10 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
           // Export nodes return layer_id (permanent) instead of temp_layer_id
           if (result.layer_id) {
             exportedLayerIds[nodeId] = result.layer_id;
+          }
+          // Extract layer style properties from tool results
+          if (result.properties) {
+            tempLayerProperties[nodeId] = result.properties;
           }
           // Extract timing info from each node result
           finalExecutionInfo[nodeId] = {
@@ -457,6 +468,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
         jobId: null, // Clear jobId to prevent re-triggering on subsequent job list updates
         tempLayerIds,
         exportedLayerIds,
+        tempLayerProperties,
         nodeStatuses: Object.fromEntries(
           Object.entries(s.nodeStatuses).map(([id, _status]) => [id, "completed"])
         ),
@@ -582,6 +594,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
       nodeExecutionInfo: {},
       tempLayerIds: {},
       exportedLayerIds: {},
+      tempLayerProperties: {},
     });
   }, []);
 
@@ -594,6 +607,7 @@ export function useWorkflowExecution({ workflow, projectId, folderId }: UseWorkf
     nodeExecutionInfo: state.nodeExecutionInfo,
     tempLayerIds: state.tempLayerIds,
     exportedLayerIds: state.exportedLayerIds,
+    tempLayerProperties: state.tempLayerProperties,
 
     // Actions
     execute,
