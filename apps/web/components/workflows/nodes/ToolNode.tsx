@@ -2,11 +2,12 @@
 
 import {
   CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
   PlayArrow as PlayIcon,
   SkipNext as RunToHereIcon,
-  Settings as ToolSettingsIcon,
+  Settings as SettingsIcon,
   Warning as WarningIcon,
 } from "@mui/icons-material";
 import { Box, Button, Chip, Divider, Stack, Tooltip, Typography } from "@mui/material";
@@ -18,6 +19,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
 
 import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
+import { type TOOL_ICON_NAME, toolIconMap } from "@p4b/ui/assets/svg/ToolIcons";
 
 import type { AppDispatch } from "@/lib/store";
 import { selectNodes } from "@/lib/store/workflow/selectors";
@@ -395,6 +397,8 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
     return parts.join(". ");
   }, [missingLayerInputs, missingConfig, t]);
 
+  const ToolIconComponent = toolIconMap[data.processId as TOOL_ICON_NAME];
+
   return (
     <>
       {/* Global styles for @property --border-angle */}
@@ -484,23 +488,33 @@ const ToolNode: React.FC<ToolNodeProps> = ({ id, data, selected }) => {
         <NodeHeader>
           <AnimatedBorderWrapper isRunning={nodeStatus === "running"}>
             <NodeIconWrapper status={nodeStatus}>
-              <ToolSettingsIcon
-                sx={{
-                  fontSize: 20,
-                  color:
-                    nodeStatus === "completed"
-                      ? "primary.main"
-                      : nodeStatus === "failed"
-                        ? "error.main"
-                        : nodeStatus === "running"
-                          ? "warning.main"
-                          : "inherit",
-                }}
-              />
+              {ToolIconComponent ? (
+                <ToolIconComponent sx={{ fontSize: 32 }} />
+              ) : (
+                <SettingsIcon
+                  sx={{
+                    fontSize: 32,
+                    color:
+                      nodeStatus === "completed"
+                        ? "primary.main"
+                        : nodeStatus === "failed"
+                          ? "error.main"
+                          : nodeStatus === "running"
+                            ? "warning.main"
+                            : "inherit",
+                  }}
+                />
+              )}
               {/* Checkmark badge on icon */}
               {nodeStatus === "completed" && (
-                <IconStatusBadge>
+                <IconStatusBadge status="completed">
                   <CheckCircleIcon sx={{ fontSize: 12 }} />
+                </IconStatusBadge>
+              )}
+              {/* Cross badge on icon */}
+              {nodeStatus === "failed" && (
+                <IconStatusBadge status="failed">
+                  <CancelIcon sx={{ fontSize: 12 }} />
                 </IconStatusBadge>
               )}
             </NodeIconWrapper>

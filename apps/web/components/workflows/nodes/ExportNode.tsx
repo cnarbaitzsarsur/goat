@@ -2,9 +2,9 @@
 
 import {
   CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
-  SaveAlt as SaveIcon,
 } from "@mui/icons-material";
 import { Box, Stack, Tooltip, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
@@ -18,6 +18,8 @@ import type { AppDispatch } from "@/lib/store";
 import { selectNodes } from "@/lib/store/workflow/selectors";
 import { addNode, removeNodes } from "@/lib/store/workflow/slice";
 import type { ExportNodeData } from "@/lib/validations/workflow";
+
+import { type TOOL_ICON_NAME, toolIconMap } from "@p4b/ui/assets/svg/ToolIcons";
 
 import { useNodeExecutionStatus } from "../context/WorkflowExecutionContext";
 import {
@@ -116,23 +118,20 @@ const ExportNode: React.FC<ExportNodeProps> = ({ id, data, selected }) => {
         <NodeHeader>
           <AnimatedBorderWrapper isRunning={nodeStatus === "running"}>
             <NodeIconWrapper status={nodeStatus}>
-              <SaveIcon
-                sx={{
-                  fontSize: 20,
-                  color:
-                    nodeStatus === "completed"
-                      ? "primary.main"
-                      : nodeStatus === "failed"
-                        ? "error.main"
-                        : nodeStatus === "running"
-                          ? "warning.main"
-                          : "inherit",
-                }}
-              />
+              {(() => {
+                const ExportIcon = toolIconMap["export_dataset" as TOOL_ICON_NAME];
+                return <ExportIcon sx={{ fontSize: 32 }} />;
+              })()}
               {/* Checkmark badge — only on completed, same as tool nodes */}
               {nodeStatus === "completed" && (
-                <IconStatusBadge>
+                <IconStatusBadge status="completed">
                   <CheckCircleIcon sx={{ fontSize: 12 }} />
+                </IconStatusBadge>
+              )}
+              {/* Cross badge on icon */}
+              {nodeStatus === "failed" && (
+                <IconStatusBadge status="failed">
+                  <CancelIcon sx={{ fontSize: 12 }} />
                 </IconStatusBadge>
               )}
             </NodeIconWrapper>

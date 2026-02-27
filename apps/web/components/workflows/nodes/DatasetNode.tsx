@@ -27,7 +27,7 @@ import type { DatasetNodeData } from "@/lib/validations/workflow";
 import useLayerFields from "@/hooks/map/CommonHooks";
 
 import { useWorkflowExecutionContext } from "../context/WorkflowExecutionContext";
-import { NodeParamsSection } from "./shared";
+import { NodeParamsSection, IconStatusBadge } from "./shared";
 
 const NodeContainer = styled(Box, {
   shouldForwardProp: (prop) => prop !== "selected",
@@ -70,25 +70,8 @@ const NodeIconWrapper = styled(Box, {
   minWidth: 40,
   borderRadius: theme.shape.borderRadius,
   border: `1px solid ${isCompleted ? theme.palette.primary.main : theme.palette.divider}`,
-  backgroundColor: isCompleted ? theme.palette.primary.main + "20" : theme.palette.background.default,
+  backgroundColor: "transparent",
   position: "relative",
-}));
-
-// Small badge on icon corner
-const IconStatusBadge = styled(Box)(({ theme }) => ({
-  position: "absolute",
-  top: -6,
-  right: -6,
-  width: 18,
-  height: 18,
-  borderRadius: "50%",
-  backgroundColor: theme.palette.primary.main,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: theme.palette.common.white,
-  zIndex: 2,
-  border: `2px solid ${theme.palette.background.paper}`,
 }));
 
 const StyledHandle = styled(Handle, {
@@ -253,11 +236,11 @@ const DatasetNode: React.FC<DatasetNodeProps> = ({ id, data, selected }) => {
           <NodeIconWrapper isCompleted={hasAnyExecution}>
             <Icon
               iconName={getGeometryIcon()}
-              sx={{ fontSize: 20, color: hasAnyExecution ? "primary.main" : "text.secondary" }}
+              sx={{ fontSize: 32, color: hasAnyExecution ? "primary.main" : "text.secondary" }}
             />
             {/* Checkmark badge on icon */}
             {hasAnyExecution && (
-              <IconStatusBadge>
+              <IconStatusBadge status="completed">
                 <CheckCircleIcon sx={{ fontSize: 12 }} />
               </IconStatusBadge>
             )}

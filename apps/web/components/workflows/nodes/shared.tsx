@@ -6,7 +6,7 @@
  * consistent visual appearance across the workflow canvas.
  */
 import { Box, GlobalStyles, IconButton, Stack } from "@mui/material";
-import { keyframes, styled } from "@mui/material/styles";
+import { alpha, keyframes, styled } from "@mui/material/styles";
 import { Handle } from "@xyflow/react";
 
 // Keyframe animation for border angle (animates CSS custom property)
@@ -62,52 +62,78 @@ export const NodeHeader = styled(Box)(({ theme }) => ({
 // Icon wrapper with status-based styling
 export const NodeIconWrapper = styled(Box, {
   shouldForwardProp: (prop) => prop !== "status",
-})<{ status?: "pending" | "running" | "completed" | "failed" }>(({ theme, status }) => ({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 40,
-  height: 40,
-  minWidth: 40,
-  borderRadius: theme.shape.borderRadius,
-  position: "relative",
-  // Animated conic-gradient border when running
-  ...(status === "running" &&
-    ({
-      "--border-angle": "0deg",
-      background: `linear-gradient(${theme.palette.background.paper}, ${theme.palette.background.paper}) padding-box, conic-gradient(from var(--border-angle), ${theme.palette.warning.main} 50%, ${theme.palette.divider} 50%) border-box`,
-      borderColor: "transparent",
-      borderStyle: "solid",
-      borderWidth: "2px",
-      animation: `${borderAngleRunning} 2s linear infinite`,
-    } as const)),
-  // Static styles for other states
-  ...(status !== "running" && {
-    border: `1px solid ${
-      status === "completed"
-        ? theme.palette.primary.main
-        : status === "failed"
-          ? theme.palette.error.main
-          : theme.palette.divider
-    }`,
-    backgroundColor:
-      status === "completed"
-        ? theme.palette.primary.main + "20"
-        : status === "failed"
-          ? theme.palette.error.light + "30"
-          : theme.palette.background.default,
-  }),
-}));
+})<{ status?: "pending" | "running" | "completed" | "failed" }>(({ theme, status }) => {
+  const isDark = theme.palette.mode === "dark";
+  
+  // Default colors (adapt to theme)
+  let color1 = isDark ? "#FAFAFA" : "#283648";
+  let color2 = isDark ? "#B2AFB6" : "#74707A";
+  let color3 = isDark ? "#74707A" : "#B2AFB6";
+  let color4 = isDark ? "rgba(255, 255, 255, 0.12)" : "#E5E4E7";
+  const color5 = isDark ? "rgba(0, 0, 0, 0.5)" : "#FAFAFA";
 
-// Small badge on icon corner (completed checkmark)
-export const IconStatusBadge = styled(Box)(({ theme }) => ({
+  // Success state colors
+  if (status === "completed") {
+    color1 = theme.palette.primary.main;
+    color2 = alpha(theme.palette.primary.main, 0.6);
+    color3 = alpha(theme.palette.primary.main, 0.4);
+    color4 = alpha(theme.palette.primary.main, 0.12);
+  } else if (status === "failed") {
+    color1 = theme.palette.error.main;
+    color2 = alpha(theme.palette.error.main, 0.6);
+    color3 = alpha(theme.palette.error.main, 0.4);
+    color4 = alpha(theme.palette.error.main, 0.12);
+  }
+
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    borderRadius: theme.shape.borderRadius,
+    position: "relative",
+    "--icon-color-1": color1,
+    "--icon-color-2": color2,
+    "--icon-color-3": color3,
+    "--icon-color-4": color4,
+    "--icon-color-5": color5,
+    // Animated conic-gradient border when running
+    ...(status === "running" &&
+      ({
+        "--border-angle": "0deg",
+        background: `linear-gradient(${theme.palette.background.paper}, ${theme.palette.background.paper}) padding-box, conic-gradient(from var(--border-angle), ${theme.palette.warning.main} 50%, ${theme.palette.divider} 50%) border-box`,
+        borderColor: "transparent",
+        borderStyle: "solid",
+        borderWidth: "2px",
+        animation: `${borderAngleRunning} 2s linear infinite`,
+      } as const)),
+    // Static styles for other states
+    ...(status !== "running" && {
+      border: `1px solid ${
+        status === "completed"
+          ? theme.palette.primary.main
+          : status === "failed"
+            ? theme.palette.error.main
+            : theme.palette.divider
+      }`,
+      backgroundColor: "transparent",
+    }),
+  };
+});
+
+// Small badge on icon corner (completed checkmark or failed cross)
+export const IconStatusBadge = styled(Box, {
+  shouldForwardProp: (prop) => prop !== "status",
+})<{ status?: "completed" | "failed" }>(({ theme, status }) => ({
   position: "absolute",
   top: -6,
   right: -6,
   width: 18,
   height: 18,
   borderRadius: "50%",
-  backgroundColor: theme.palette.primary.main,
+  backgroundColor: status === "failed" ? theme.palette.error.main : theme.palette.primary.main,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

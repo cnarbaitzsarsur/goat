@@ -4,17 +4,20 @@ import {
   CancelOutlined as CancelOutlinedIcon,
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
 } from "@mui/icons-material";
 import {
   Box,
   Card,
-  CardHeader,
   CircularProgress,
   Collapse,
   Divider,
   Grid,
   IconButton,
+  InputAdornment,
   Stack,
+  TextField,
   Tooltip,
   Typography,
   useTheme,
@@ -25,6 +28,7 @@ import { useTranslation } from "react-i18next";
 import { useDispatch, useSelector } from "react-redux";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
+import { type TOOL_ICON_NAME, toolIconMap } from "@p4b/ui/assets/svg/ToolIcons";
 
 import { type JobStatusType, dismissJob, useJobs } from "@/lib/api/processes";
 import type { AppDispatch } from "@/lib/store";
@@ -114,34 +118,47 @@ const DraggableToolCard: React.FC<DraggableToolCardProps> = ({ tool, onDragStart
     setIsDragging(false);
   };
 
+  const ToolIconComponent = toolIconMap[tool.id as TOOL_ICON_NAME];
+
+  const isDark = theme.palette.mode === "dark";
+
   return (
-    <Card
+    <Stack
+      direction="column"
+      alignItems="center"
+      spacing={1}
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       sx={{
         cursor: isDragging ? "grabbing" : "grab",
-        maxWidth: "130px",
-        borderRadius: "6px",
         opacity: isDragging ? 0.5 : 1,
         transition: "opacity 0.2s",
+        "--icon-color-1": isDark ? "#FAFAFA" : "#283648",
+        "--icon-color-2": isDark ? "#B2AFB6" : "#74707A",
+        "--icon-color-3": isDark ? "#74707A" : "#B2AFB6",
+        "--icon-color-4": isDark ? "rgba(255, 255, 255, 0.12)" : "#E5E4E7",
+        "--icon-color-5": isDark ? "rgba(0, 0, 0, 0.5)" : "#FAFAFA",
       }}>
-      <CardHeader
+      <Card
         sx={{
-          px: 2,
-          py: 4,
-          ".MuiCardHeader-content": {
-            width: "100%",
-            color: isDragging ? theme.palette.primary.main : theme.palette.text.secondary,
-          },
-        }}
-        title={
-          <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
-            {t(tool.id, { defaultValue: tool.title })}
-          </Typography>
-        }
-      />
-    </Card>
+          borderRadius: "6px",
+          width: 68,
+          height: 68,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+        {ToolIconComponent ? <ToolIconComponent sx={{ fontSize: 44 }} /> : <SettingsIcon sx={{ fontSize: 44, color: "text.secondary" }} />}
+      </Card>
+      <Typography
+        variant="caption"
+        fontWeight="bold"
+        color={isDragging ? "primary.main" : "text.secondary"}
+        sx={{ textAlign: "center", lineHeight: 1.2, wordBreak: "break-word", whiteSpace: "normal" }}>
+        {t(tool.id, { defaultValue: tool.title })}
+      </Typography>
+    </Stack>
   );
 };
 
@@ -152,10 +169,20 @@ interface ToolsTabContentProps {
 
 const ToolsTabContent: React.FC<ToolsTabContentProps> = ({ onDragStart }) => {
   const { t } = useTranslation("common");
-  const theme = useTheme();
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Fetch all processes from OGC API
   const { processes: ogcProcesses, isLoading, error } = useCategorizedProcesses();
+
+  // Data I/O items (static)
+  const dataIoItems: ToolItem[] = useMemo(
+    () => [
+      { id: "add_dataset", title: t("add_dataset") },
+      { id: "export_dataset", title: t("export_dataset") },
+      { id: "custom_sql", title: t("custom_sql") },
+    ],
+    [t]
+  );
 
   // Organize tools by category
   const toolsByCategory = useMemo(() => {
@@ -179,16 +206,31 @@ const ToolsTabContent: React.FC<ToolsTabContentProps> = ({ onDragStart }) => {
     return categories;
   }, [ogcProcesses]);
 
-  // Sort categories and filter empty ones
+  // Filter helper
+  const matchesSearch = useCallback(
+    (tool: ToolItem) => {
+      if (!searchTerm) return true;
+      const lower = searchTerm.toLowerCase();
+      const translatedName = t(tool.id, { defaultValue: tool.title }).toLowerCase();
+      return translatedName.includes(lower) || tool.id.toLowerCase().includes(lower);
+    },
+    [searchTerm, t]
+  );
+
+  // Sort categories, apply search filter, and remove empty ones
   const sortedCategories = useMemo(() => {
     return Object.entries(toolsByCategory)
+      .map(([category, tools]) => [category, tools.filter(matchesSearch)] as [string, ToolItem[]])
       .filter(([_, tools]) => tools.length > 0)
       .sort(([a], [b]) => {
         const orderA = CATEGORY_CONFIG[a as ToolCategory]?.order ?? 99;
         const orderB = CATEGORY_CONFIG[b as ToolCategory]?.order ?? 99;
         return orderA - orderB;
       });
-  }, [toolsByCategory]);
+  }, [toolsByCategory, matchesSearch]);
+
+  // Filtered data I/O items
+  const filteredDataIoItems = useMemo(() => dataIoItems.filter(matchesSearch), [dataIoItems, matchesSearch]);
 
   // Handle drag start for tools
   const handleToolDragStart = (event: React.DragEvent, toolId: string) => {
@@ -218,127 +260,81 @@ const ToolsTabContent: React.FC<ToolsTabContentProps> = ({ onDragStart }) => {
     onDragStart(event, "tool", "custom_sql");
   };
 
+  const hasNoResults = filteredDataIoItems.length === 0 && sortedCategories.length === 0;
+
   return (
-    <Stack spacing={4} sx={{ p: 3 }}>
-      {/* Data I/O Section - Dataset input and Export output */}
-      <Box sx={{ mb: 4 }}>
-        <SettingsGroupHeader label={t("data_io")} />
-        <Grid container spacing={4}>
-          <Grid item xs={6}>
-            <Card
-              draggable
-              onDragStart={handleDatasetDragStart}
-              sx={{
-                cursor: "grab",
-                maxWidth: "130px",
-                borderRadius: "6px",
-                "&:active": { cursor: "grabbing" },
-              }}>
-              <CardHeader
-                sx={{
-                  px: 2,
-                  py: 4,
-                  ".MuiCardHeader-content": {
-                    width: "100%",
-                    color: theme.palette.text.secondary,
-                  },
-                }}
-                title={
-                  <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
-                    {t("add_dataset")}
-                  </Typography>
-                }
-              />
-            </Card>
-          </Grid>
-          <Grid item xs={6}>
-            <Card
-              draggable
-              onDragStart={handleExportDragStart}
-              sx={{
-                cursor: "grab",
-                maxWidth: "130px",
-                borderRadius: "6px",
-                "&:active": { cursor: "grabbing" },
-              }}>
-              <CardHeader
-                sx={{
-                  px: 2,
-                  py: 4,
-                  ".MuiCardHeader-content": {
-                    width: "100%",
-                    color: theme.palette.text.secondary,
-                  },
-                }}
-                title={
-                  <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
-                    {t("export_dataset")}
-                  </Typography>
-                }
-              />
-            </Card>
-          </Grid>
-          <Grid item xs={6}>
-            <Card
-              draggable
-              onDragStart={handleCustomSqlDragStart}
-              sx={{
-                cursor: "grab",
-                maxWidth: "130px",
-                borderRadius: "6px",
-                "&:active": { cursor: "grabbing" },
-              }}>
-              <CardHeader
-                sx={{
-                  px: 2,
-                  py: 4,
-                  ".MuiCardHeader-content": {
-                    width: "100%",
-                    color: theme.palette.text.secondary,
-                  },
-                }}
-                title={
-                  <Typography variant="body2" fontWeight="bold" noWrap color="inherit">
-                    {t("custom_sql")}
-                  </Typography>
-                }
-              />
-            </Card>
-          </Grid>
-        </Grid>
-      </Box>
+    <Stack direction="column" height="100%" width="100%">
+      <TextField
+        fullWidth
+        placeholder={t("search")}
+        sx={{ p: 3 }}
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" />
+            </InputAdornment>
+          ),
+        }}
+        size="small"
+      />
+      <Box sx={{ flex: 1, overflowY: "auto" }}>
+        <Stack spacing={4} sx={{ p: 3 }}>
+          {/* Data I/O Section - Dataset input and Export output */}
+          {filteredDataIoItems.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <SettingsGroupHeader label={t("data_io")} />
+              <Grid container spacing={4}>
+                {filteredDataIoItems.map((item) => (
+                  <Grid item xs={4} key={item.id}>
+                    <DraggableToolCard
+                      tool={item}
+                      onDragStart={(event) => {
+                        if (item.id === "add_dataset") handleDatasetDragStart(event);
+                        else if (item.id === "export_dataset") handleExportDragStart(event);
+                        else if (item.id === "custom_sql") handleCustomSqlDragStart(event);
+                      }}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
 
-      {error && (
-        <Typography color="warning.main" variant="caption" sx={{ display: "block" }}>
-          {t("some_tools_unavailable")}
-        </Typography>
-      )}
+          {error && (
+            <Typography color="warning.main" variant="caption" sx={{ display: "block" }}>
+              {t("some_tools_unavailable")}
+            </Typography>
+          )}
 
-      {/* Tool Categories */}
-      {sortedCategories.map(([category, tools]) => {
-        const categoryConfig = CATEGORY_CONFIG[category as ToolCategory];
+          {/* Tool Categories */}
+          {sortedCategories.map(([category, tools]) => {
+            const categoryConfig = CATEGORY_CONFIG[category as ToolCategory];
 
-        return (
-          <Box key={category} sx={{ mb: 4 }}>
-            <SettingsGroupHeader label={t(categoryConfig?.name ?? category)} />
-            <Grid container spacing={4}>
-              {tools.map((tool) => (
-                <Grid item xs={6} key={tool.id}>
-                  <DraggableToolCard tool={tool} onDragStart={handleToolDragStart} />
+            return (
+              <Box key={category} sx={{ mb: 4 }}>
+                <SettingsGroupHeader label={t(categoryConfig?.name ?? category)} />
+                <Grid container spacing={4}>
+                  {tools.map((tool) => (
+                    <Grid item xs={4} key={tool.id}>
+                      <DraggableToolCard tool={tool} onDragStart={handleToolDragStart} />
+                    </Grid>
+                  ))}
                 </Grid>
-              ))}
-            </Grid>
-          </Box>
-        );
-      })}
+              </Box>
+            );
+          })}
 
-      {sortedCategories.length === 0 && (
-        <Box sx={{ textAlign: "center", py: 4 }}>
-          <Typography variant="body2" color="text.secondary">
-            {t("no_tools_available")}
-          </Typography>
-        </Box>
-      )}
+          {hasNoResults && (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="text.secondary">
+                {searchTerm ? t("no_results") : t("no_tools_available")}
+              </Typography>
+            </Box>
+          )}
+        </Stack>
+      </Box>
     </Stack>
   );
 };
