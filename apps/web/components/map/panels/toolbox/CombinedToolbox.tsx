@@ -5,22 +5,23 @@
  * Tools tab: All tools from OGC API Processes, organized by category.
  * Workflows tab: Project workflows that can be run with runtime variables.
  */
+import { Search as SearchIcon, Settings as SettingsIcon } from "@mui/icons-material";
 import {
   Box,
   CircularProgress,
-  List,
-  ListItemButton,
-  ListItemSecondaryAction,
-  ListItemText,
+  Grid,
+  InputAdornment,
+  Stack,
   Tab,
   Tabs,
+  TextField,
   Typography,
   useTheme,
 } from "@mui/material";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ICON_NAME, Icon } from "@p4b/ui/components/Icon";
+import { type TOOL_ICON_NAME, toolIconMap } from "@p4b/ui/assets/svg/ToolIcons";
 
 import {
   setActiveRightPanel,
@@ -35,7 +36,7 @@ import type { ToolCategory } from "@/types/map/ogc-processes";
 import { useCategorizedProcesses } from "@/hooks/map/useOgcProcesses";
 import { useAppDispatch } from "@/hooks/store/ContextHooks";
 
-import AccordionWrapper from "@/components/common/AccordionWrapper";
+import SettingsGroupHeader from "@/components/builder/widgets/common/SettingsGroupHeader";
 import Container from "@/components/map/panels/Container";
 import WorkflowList from "@/components/map/panels/toolbox/WorkflowList";
 import WorkflowRunner from "@/components/map/panels/toolbox/WorkflowRunner";
@@ -44,32 +45,12 @@ import GenericTool from "@/components/map/panels/toolbox/generic/GenericTool";
 /**
  * Category display configuration
  */
-const CATEGORY_CONFIG: Record<ToolCategory, { name: string; icon: ICON_NAME; order: number }> = {
-  accessibility_indicators: {
-    name: "accessibility_indicators",
-    icon: ICON_NAME.BULLSEYE,
-    order: 1,
-  },
-  geoprocessing: {
-    name: "geoprocessing",
-    icon: ICON_NAME.SETTINGS,
-    order: 2,
-  },
-  geoanalysis: {
-    name: "geoanalysis",
-    icon: ICON_NAME.CHART,
-    order: 3,
-  },
-  data_management: {
-    name: "data_management",
-    icon: ICON_NAME.TABLE,
-    order: 4,
-  },
-  other: {
-    name: "other",
-    icon: ICON_NAME.CIRCLEINFO,
-    order: 5,
-  },
+const CATEGORY_CONFIG: Record<ToolCategory, { name: string; order: number }> = {
+  accessibility_indicators: { name: "accessibility_indicators", order: 1 },
+  geoprocessing: { name: "geoprocessing", order: 2 },
+  geoanalysis: { name: "geoanalysis", order: 3 },
+  data_management: { name: "data_management", order: 4 },
+  other: { name: "other", order: 5 },
 };
 
 interface ToolItem {
@@ -78,52 +59,89 @@ interface ToolItem {
   description?: string;
 }
 
-interface ToolListProps {
-  tools: ToolItem[];
-  onSelectTool: (toolId: string) => void;
+interface ToolCardProps {
+  tool: ToolItem;
+  onSelect: (toolId: string) => void;
 }
 
-function ToolList({ tools, onSelectTool }: ToolListProps) {
+function ToolCard({ tool, onSelect }: ToolCardProps) {
   const { t } = useTranslation("common");
+  const ToolIconComponent = toolIconMap[tool.id as TOOL_ICON_NAME];
 
   return (
-    <List dense sx={{ pt: 0 }}>
-      {tools.map((tool) => (
-        <ListItemButton key={tool.id} onClick={() => onSelectTool(tool.id)}>
-          <ListItemText
-            primary={t(tool.id, { defaultValue: tool.title })}
-            secondary={
-              tool.description && tool.description.length > 60
-                ? `${tool.description.substring(0, 60)}...`
-                : tool.description
-            }
-            secondaryTypographyProps={{
-              variant: "caption",
-              sx: { opacity: 0.7 },
-            }}
-          />
-          <ListItemSecondaryAction>
-            <Icon iconName={ICON_NAME.CHEVRON_RIGHT} sx={{ fontSize: "12px" }} />
-          </ListItemSecondaryAction>
-        </ListItemButton>
-      ))}
-    </List>
+    <Stack
+      direction="column"
+      alignItems="center"
+      spacing={1}
+      onClick={() => onSelect(tool.id)}
+      sx={{
+        cursor: "pointer",
+        "&:hover .tool-card": {
+          borderColor: "primary.main",
+        },
+        "&:hover .tool-label": {
+          color: "primary.main",
+        },
+      }}>
+      <Box
+        className="tool-card"
+        sx={{
+          borderRadius: "6px",
+          width: 68,
+          height: 68,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: 1,
+          borderColor: "divider",
+          transition: "border-color 0.2s",
+        }}>
+        {ToolIconComponent ? (
+          <ToolIconComponent sx={{ fontSize: 44 }} />
+        ) : (
+          <SettingsIcon sx={{ fontSize: 44, color: "text.secondary" }} />
+        )}
+      </Box>
+      <Typography
+        className="tool-label"
+        variant="caption"
+        fontWeight="bold"
+        color="text.secondary"
+        sx={{
+          textAlign: "center",
+          lineHeight: 1.2,
+          wordBreak: "break-word",
+          whiteSpace: "normal",
+          transition: "color 0.2s",
+        }}>
+        {t(tool.id, { defaultValue: tool.title })}
+      </Typography>
+    </Stack>
   );
 }
 
-export default function CombinedToolbox() {
+interface ToolsTabContentProps {
+  onSelectTool: (toolId: string) => void;
+}
+
+function ToolsTabContent({ onSelectTool }: ToolsTabContentProps) {
   const { t } = useTranslation("common");
   const theme = useTheme();
-  const dispatch = useAppDispatch();
+  const isDark = theme.palette.mode === "dark";
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const [activeTab, setActiveTab] = useState(0);
-  const [selectedToolId, setSelectedToolId] = useState<string | undefined>(undefined);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | undefined>(undefined);
-
-  // Fetch all processes from OGC API
   const { processes: ogcProcesses, isLoading, error } = useCategorizedProcesses();
 
-  // Organize tools by category
+  const matchesSearch = useCallback(
+    (tool: ToolItem) => {
+      if (!searchTerm) return true;
+      const lower = searchTerm.toLowerCase();
+      const translatedName = t(tool.id, { defaultValue: tool.title }).toLowerCase();
+      return translatedName.includes(lower) || tool.id.toLowerCase().includes(lower);
+    },
+    [searchTerm, t]
+  );
+
   const toolsByCategory = useMemo(() => {
     const categories: Record<ToolCategory, ToolItem[]> = {
       accessibility_indicators: [],
@@ -133,7 +151,6 @@ export default function CombinedToolbox() {
       other: [],
     };
 
-    // Add all tools from OGC API
     for (const process of ogcProcesses) {
       const category = process.category || "other";
       categories[category].push({
@@ -146,16 +163,98 @@ export default function CombinedToolbox() {
     return categories;
   }, [ogcProcesses]);
 
-  // Sort categories and filter empty ones
   const sortedCategories = useMemo(() => {
     return Object.entries(toolsByCategory)
+      .map(([category, tools]) => [category, tools.filter(matchesSearch)] as [string, ToolItem[]])
       .filter(([_, tools]) => tools.length > 0)
       .sort(([a], [b]) => {
         const orderA = CATEGORY_CONFIG[a as ToolCategory]?.order ?? 99;
         const orderB = CATEGORY_CONFIG[b as ToolCategory]?.order ?? 99;
         return orderA - orderB;
       });
-  }, [toolsByCategory]);
+  }, [toolsByCategory, matchesSearch]);
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: 200 }}>
+        <CircularProgress size={24} />
+      </Box>
+    );
+  }
+
+  return (
+    <Stack direction="column" height="100%" width="100%" overflow="hidden">
+      <Box sx={{ flexShrink: 0, p: 3 }}>
+        <TextField
+          fullWidth
+          placeholder={t("search")}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+          size="small"
+        />
+      </Box>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          "--icon-color-1": isDark ? "#FAFAFA" : "#283648",
+          "--icon-color-2": isDark ? "#B2AFB6" : "#74707A",
+          "--icon-color-3": isDark ? "#74707A" : "#B2AFB6",
+          "--icon-color-4": isDark ? "rgba(255, 255, 255, 0.12)" : "#E5E4E7",
+          "--icon-color-5": isDark ? "rgba(0, 0, 0, 0.5)" : "#FAFAFA",
+        }}>
+        <Stack spacing={4} sx={{ p: 3 }}>
+          {error && (
+            <Typography color="warning.main" variant="caption" sx={{ display: "block" }}>
+              {t("some_tools_unavailable")}
+            </Typography>
+          )}
+
+          {sortedCategories.map(([category, tools]) => {
+            const config = CATEGORY_CONFIG[category as ToolCategory];
+
+            return (
+              <Box key={category}>
+                <SettingsGroupHeader label={t(config?.name ?? category)} />
+                <Grid container spacing={4}>
+                  {tools.map((tool) => (
+                    <Grid item xs={4} key={tool.id}>
+                      <ToolCard tool={tool} onSelect={onSelectTool} />
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+            );
+          })}
+
+          {sortedCategories.length === 0 && (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="text.secondary">
+                {searchTerm ? t("no_results") : t("no_tools_available")}
+              </Typography>
+            </Box>
+          )}
+        </Stack>
+      </Box>
+    </Stack>
+  );
+}
+
+export default function CombinedToolbox() {
+  const { t } = useTranslation("common");
+  const dispatch = useAppDispatch();
+
+  const [activeTab, setActiveTab] = useState(0);
+  const [selectedToolId, setSelectedToolId] = useState<string | undefined>(undefined);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | undefined>(undefined);
 
   const handleSelectTool = (toolId: string) => {
     setSelectedToolId(toolId);
@@ -195,22 +294,6 @@ export default function CombinedToolbox() {
     );
   }
 
-  // Loading state (tools tab only)
-  if (isLoading && activeTab === 0) {
-    return (
-      <Container
-        title={t("toolbox")}
-        disablePadding={true}
-        close={handleClose}
-        body={
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress />
-          </Box>
-        }
-      />
-    );
-  }
-
   // Main toolbox view with tabs
   return (
     <Container
@@ -222,8 +305,10 @@ export default function CombinedToolbox() {
         </Typography>
       }
       body={
-        <>
-          <Box sx={{ borderBottom: 1, borderColor: "divider", mt: -2 }}>
+        <Stack
+          direction="column"
+          sx={{ height: "100%", overflow: "hidden", mt: -2 }}>
+          <Box sx={{ borderBottom: 1, borderColor: "divider", flexShrink: 0 }}>
             <Tabs
               value={activeTab}
               onChange={(_e, newValue) => setActiveTab(newValue)}
@@ -241,61 +326,16 @@ export default function CombinedToolbox() {
             </Tabs>
           </Box>
 
-          {/* Tools Tab */}
-          {activeTab === 0 && (
-            <>
-              {error && (
-                <Typography color="warning.main" variant="caption" sx={{ p: 1, display: "block" }}>
-                  {t("some_tools_unavailable")}
-                </Typography>
-              )}
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            {/* Tools Tab */}
+            {activeTab === 0 && <ToolsTabContent onSelectTool={handleSelectTool} />}
 
-              {sortedCategories.map(([category, tools]) => {
-                const config = CATEGORY_CONFIG[category as ToolCategory];
-
-                return (
-                  <AccordionWrapper
-                    key={category}
-                    boxShadow="none"
-                    backgroundColor="transparent"
-                    header={
-                      <Typography
-                        variant="body2"
-                        fontWeight="bold"
-                        sx={{
-                          flexShrink: 0,
-                          display: "flex",
-                          gap: theme.spacing(2),
-                          alignItems: "center",
-                        }}>
-                        <Icon
-                          iconName={config?.icon ?? ICON_NAME.CIRCLEINFO}
-                          sx={{ fontSize: "16px" }}
-                          htmlColor="inherit"
-                        />
-                        {t(config?.name ?? category)}
-                      </Typography>
-                    }
-                    body={<ToolList tools={tools} onSelectTool={handleSelectTool} />}
-                  />
-                );
-              })}
-
-              {sortedCategories.length === 0 && (
-                <Box sx={{ p: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {t("no_tools_available")}
-                  </Typography>
-                </Box>
-              )}
-            </>
-          )}
-
-          {/* Workflows Tab */}
-          {activeTab === 1 && (
-            <WorkflowList onSelectWorkflow={(id) => setSelectedWorkflowId(id)} />
-          )}
-        </>
+            {/* Workflows Tab */}
+            {activeTab === 1 && (
+              <WorkflowList onSelectWorkflow={(id) => setSelectedWorkflowId(id)} />
+            )}
+          </Box>
+        </Stack>
       }
     />
   );
