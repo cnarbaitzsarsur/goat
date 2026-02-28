@@ -192,11 +192,10 @@ Sobald die Berechnung abgeschlossen ist, wird ein Ergebnis-Layer zur Karte hinzu
 - **Höhere Wahrscheinlichkeitswerte** zeigen an, dass eine Einrichtung einen größeren Anteil der Gesamtnachfrage erfasst – sie ist im Vergleich zu Alternativen wettbewerbsfähiger.
 - **Niedrigere Wahrscheinlichkeitswerte** zeigen an, dass eine Einrichtung weniger Nachfrage erfasst, entweder weil sie weniger attraktiv ist, weiter entfernt liegt oder starker Konkurrenz durch nahegelegene Alternativen ausgesetzt ist.
 
-<!-- TODO: Add screenshot/GIF of Huff model result
 <div style={{ display: 'flex', justifyContent: 'center' }}>
-<img src={require('/img/toolbox/accessibility_indicators/huff_model/huff_result.png').default} alt="Huff Model Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
+<img src={require('/img/toolbox/accessibility_indicators/heatmaps/huff_model/huff_model.png').default} alt="Huff-model Heatmap Ergebnis in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
 </div>
--->
+<p></p>
 
 :::tip Tipp
 

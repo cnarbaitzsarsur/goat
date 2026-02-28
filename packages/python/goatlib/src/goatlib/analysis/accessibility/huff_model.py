@@ -425,7 +425,7 @@ class HuffmodelTool(HeatmapToolBase):
             )
             SELECT
                 supply_id,
-                SUM(captured_demand) / {total_demand} AS huff_probability,
+                SUM(captured_demand) / {total_demand}*100 AS probability,
                 MAX(attractivity) AS attractivity
             FROM probabilities_with_demand
             GROUP BY supply_id

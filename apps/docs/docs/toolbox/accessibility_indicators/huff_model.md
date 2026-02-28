@@ -188,16 +188,16 @@ Ideally, collect data on actual customer visits or market shares to estimate opt
 
 ### Results
 
-Once the calculation is complete, a result layer will be added to the map. Each feature in the result layer represents a **supply location** with its computed Huff probability.
+Once the calculation is complete, a result layer will be added to the map. Each feature in the result layer represents a **supply location** with its computed market share/probability expressed in percent.
 
 - **Higher probability** values indicate that a facility captures a larger share of the total demand — it is more competitive relative to alternatives.
 - **Lower probability** values indicate that a facility captures less demand, either because it is less attractive, farther away, or faces strong competition from nearby alternatives.
 
-<!-- TODO: Add screenshot/GIF of Huff model result
 <div style={{ display: 'flex', justifyContent: 'center' }}>
-<img src={require('/img/toolbox/accessibility_indicators/huff_model/huff_result.png').default} alt="Huff Model Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
+<img src={require('/img/toolbox/accessibility_indicators/heatmaps/huff_model/huff_model.png').default} alt="Huff Model Calculation Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
 </div>
--->
+<p></p>
+
 
 :::tip Tip
 

@@ -125,7 +125,7 @@ class ClusteringZones(AnalysisTool):
             raise ValueError(f"Cannot create {k} clusters from {n_features} features")
         
         # Validate feature limit for performance reasons
-        max_features = 4000
+        max_features = 2000
         if n_features > max_features:
             raise ValueError( f"Clustering zones support a maximum of {max_features} features. Got {n_features} features." )
 
@@ -181,8 +181,8 @@ class ClusteringZones(AnalysisTool):
                         logger.info("Generation %d: fitness = %.6f, stagnation = %d", gen, gen_best_fitness,stagnation_count, )
 
                 # Stop if this is the last generation or early stopping
-                if gen >= self.n_generations or stagnation_count >= 20:
-                    if stagnation_count >= 20:
+                if gen >= self.n_generations or stagnation_count >= 15:
+                    if stagnation_count >= 15:
                         logger.info(
                             "Early stopping at generation %d due to stagnation",
                             gen,
@@ -850,7 +850,7 @@ class ClusteringZones(AnalysisTool):
 
         target_size = n_weighted_features // k
         features_per_zone_per_iter = max(3, min(10, target_size // 10))
-        max_iterations = max(40, (n_features // (k * features_per_zone_per_iter)) + 25)
+        max_iterations = max(30, (n_features // (k * features_per_zone_per_iter)) + 20)
         if target_size <= 30:
             features_per_zone_per_iter = 1
         # Slow growth rate when zones approach target size to avoid overshooting
@@ -979,7 +979,6 @@ class ClusteringZones(AnalysisTool):
             ).fetchone()[0]
             if unassigned_count == 0:
                 break
-  
         # Handle remaining unassigned features - assign to SMALLEST nearby zone
         self.con.execute(f"""
             WITH unassigned AS (
@@ -1020,7 +1019,6 @@ class ClusteringZones(AnalysisTool):
               AND bzg.feature_id = bz.feature_id
               AND bz.rn = 1
         """)
-        
         # boundary mutations: swap some boundary features to smaller neighboring zones
         self.con.execute(f"""
             WITH zone_sizes_final AS (
@@ -1071,3 +1069,9 @@ class ClusteringZones(AnalysisTool):
             INSERT INTO ga_assignments (individual_id, feature_id, cluster_id)
             SELECT individual_id, feature_id, cluster_id FROM batch_zone_grow
         """)
+
+        # Clean up batch-level temp tables to free memory
+        self.con.execute("DROP TABLE IF EXISTS batch_zone_grow")
+        self.con.execute("DROP TABLE IF EXISTS batch_assignments")
+        self.con.execute("DROP TABLE IF EXISTS zone_sizes")
+        self.con.execute("DROP TABLE IF EXISTS zone_centroids_grow")

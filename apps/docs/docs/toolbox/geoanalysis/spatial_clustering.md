@@ -31,11 +31,12 @@ The Spatial Clustering tool groups a set of spatial features into a specified nu
 
 :::info
 
-The Spatial Clustering tool is currently **limited to point features only**. It only supports a maximum of **4,000 points**. For larger datasets, consider pre-filtering or sampling your data before running the tool.
+The Spatial Clustering tool is currently **limited to point features only**. It only supports a maximum of **2,000 points**. For larger datasets, consider pre-filtering or sampling your data before running the tool.
+:::
 
-**Note on Performance and Determinism:**
-- The **Balanced Zones** method uses a genetic algorithm which is **non-deterministic**. Different runs with the same input may produce slightly different zone configurations.
-- Execution time for **Balanced Zones** can vary significantly based on the number of points and desired clusters. It is generally slower than K-Means, taking anywhere from **30 seconds to 4 minutes** depending on dataset complexity.
+:::info
+- The **Balanced Zones** method uses a genetic algorithm which is **non-deterministic**. Different runs may produce slightly different zone configurations.
+- Execution time for **Balanced Zones** can vary significantly based on the number of points and desired clusters. It is generally slower than K-Means, taking anywhere from **1 Minute to 3 minutes** depending on dataset complexity.
 :::
 
 ## 2. Example use cases
@@ -125,11 +126,9 @@ Once the calculation is complete, **two result layers** will be added to the map
 2. **Summary layer** — One multigeometry feature per zone, with zone statistics (size, maximum distance between features).
 
 
-<!-- TODO: Add screenshot of clustering result
 <div style={{ display: 'flex', justifyContent: 'center' }}>
-<img src={require('/img/toolbox/geoanalysis/clustering_zones/clustering_result.png').default} alt="Spatial Clustering Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
+<img src={require('/img/toolbox/geoanalysis/spatial_clustering/clustering.png').default} alt="Closest Average Heatmap Calculation Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
 </div>
--->
 
 :::tip Tip
 

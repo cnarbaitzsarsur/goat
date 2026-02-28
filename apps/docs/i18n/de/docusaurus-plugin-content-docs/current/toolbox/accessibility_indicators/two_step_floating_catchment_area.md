@@ -245,10 +245,11 @@ Sobald die Berechnung abgeschlossen ist, wird ein Ergebnis-Layer zur Karte hinzu
 
 Durch Klicken auf eine hexagonale Zelle wird deren berechneter Erreichbarkeitswert angezeigt.
 
-<!-- TODO: Add screenshot/GIF of 2SFCA result
+<!--
 <div style={{ display: 'flex', justifyContent: 'center' }}>
-<img src={require('/img/toolbox/accessibility_indicators/heatmaps/2sfca/2sfca_result.png').default} alt="Heatmap 2SFCA Result in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
+<img src={require('/img/toolbox/accessibility_indicators/heatmaps/two_step_floating_catchment_area/2sfca.gif').default} alt="Heatmap 2SFCA Ergebnis in GOAT" style={{ maxHeight: "auto", maxWidth: "80%"}}/>
 </div>
+<p></p>
 -->
 
 :::tip Tipp
