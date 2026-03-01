@@ -57,14 +57,14 @@ export default function ExportNodeSettings({ node, onBack }: ExportNodeSettingsP
   // Local state for form values — provides instant UI updates.
   // Redux is updated as a side effect (same pattern as tool nodes).
   const [datasetName, setDatasetName] = useState(data.datasetName || "");
-  const [addToProject, setAddToProject] = useState(data.addToProject);
-  const [overwritePrevious, setOverwritePrevious] = useState(data.overwritePrevious);
+  const [addToProject, setAddToProject] = useState(!!data.addToProject);
+  const [overwritePrevious, setOverwritePrevious] = useState(!!data.overwritePrevious);
 
   // Reset local state when a different node is selected
   useEffect(() => {
     setDatasetName(data.datasetName || "");
-    setAddToProject(data.addToProject);
-    setOverwritePrevious(data.overwritePrevious);
+    setAddToProject(!!data.addToProject);
+    setOverwritePrevious(!!data.overwritePrevious);
   }, [node.id, data.datasetName, data.addToProject, data.overwritePrevious]);
 
   // Find the upstream tool node connected to this export node

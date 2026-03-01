@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkflowBase(BaseModel):
@@ -44,14 +44,13 @@ class WorkflowUpdate(BaseModel):
 class WorkflowRead(WorkflowBase):
     """Schema for reading a workflow."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID = Field(..., description="Workflow ID")
     project_id: UUID = Field(..., description="Parent project ID")
     thumbnail_url: str | None = Field(None, description="Workflow preview thumbnail URL")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
-
-    class Config:
-        from_attributes = True
 
 
 # Request examples for OpenAPI documentation

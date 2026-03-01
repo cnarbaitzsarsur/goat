@@ -167,7 +167,7 @@ const WorkflowVariablesDialog: React.FC<WorkflowVariablesDialogProps> = ({ open,
                 <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: 3, py: 1.5 }}>
                   <TextField
                     size="small"
-                    placeholder="variable_name"
+                    placeholder={t("workflow_variable_name_placeholder")}
                     value={variable.name}
                     onChange={(e) =>
                       handleUpdate(variable.id, { name: e.target.value.replace(/\s/g, "_") })
@@ -187,12 +187,12 @@ const WorkflowVariablesDialog: React.FC<WorkflowVariablesDialogProps> = ({ open,
                       })
                     }
                     sx={{ width: 100, fontSize: "0.8125rem" }}>
-                    <MenuItem value="string">String</MenuItem>
-                    <MenuItem value="number">Number</MenuItem>
+                    <MenuItem value="string">{t("workflow_variable_type_string")}</MenuItem>
+                    <MenuItem value="number">{t("workflow_variable_type_number")}</MenuItem>
                   </Select>
                   <TextField
                     size="small"
-                    placeholder={variable.type === "number" ? "0" : "value"}
+                    placeholder={variable.type === "number" ? "0" : t("workflow_variable_value_placeholder")}
                     type={variable.type === "number" ? "number" : "text"}
                     value={variable.defaultValue ?? ""}
                     onChange={(e) => handleUpdate(variable.id, { defaultValue: e.target.value })}
