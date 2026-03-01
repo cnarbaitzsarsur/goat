@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from goatlib.analysis.accessibility import CatchmentAreaTool
 from goatlib.analysis.schemas.catchment_area import (
@@ -216,14 +216,14 @@ class CatchmentAreaWindmillParams(ToolInputBase):
     max_distance: int = Field(
         default=500,
         ge=50,
-        le=5000,
+        le=100000,
         description="Maximum distance in meters.",
         json_schema_extra=ui_field(
             section="configuration",
             field_order=2,
             label_key="max_distance",
             widget="slider",
-            widget_options={"min": 50, "max": 5000, "step": 50},
+            widget_options={"min": 50, "max": 100000, "step": 50},
             visible_when={
                 "$and": [
                     {"routing_mode": {"$in": ["walking", "bicycle", "pedelec", "car"]}},
@@ -232,6 +232,27 @@ class CatchmentAreaWindmillParams(ToolInputBase):
             },
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_distance_limit_by_mode(self: Self) -> Self:
+        if self.measure_type != CatchmentAreaMeasureType.distance:
+            return self
+
+        if self.routing_mode == CatchmentAreaRoutingMode.car:
+            if self.max_distance > 100000:
+                raise ValueError("Car catchment distance must be less than or equal to 100000 meters.")
+            return self
+
+        if self.routing_mode in {
+            CatchmentAreaRoutingMode.walking,
+            CatchmentAreaRoutingMode.bicycle,
+            CatchmentAreaRoutingMode.pedelec,
+        } and self.max_distance > 20000:
+            raise ValueError(
+                "Active mobility catchment distance must be less than or equal to 20000 meters."
+            )
+
+        return self
 
     steps: CatchmentAreaSteps = Field(
         default=5,

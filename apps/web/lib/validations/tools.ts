@@ -98,7 +98,7 @@ export const timeTravelCost = z.object({
 });
 
 export const distanceTravelCost = z.object({
-  max_distance: z.number().min(50).max(20000),
+  max_distance: z.number().min(50).max(100000),
   steps: z.number().min(3).max(9),
 });
 
@@ -122,6 +122,18 @@ export const catchmentAreaBaseSchema = z.object({
 export const activeMobilityAndCarCatchmentAreaSchema = catchmentAreaBaseSchema.extend({
   routing_type: CatchmentAreaRoutingWithoutPT,
   travel_cost: z.union([timeTravelCost, distanceTravelCost]),
+}).superRefine((value, ctx) => {
+  if (
+    value.routing_type !== CatchmentAreaRoutingWithoutPT.Enum.car &&
+    "max_distance" in value.travel_cost &&
+    value.travel_cost.max_distance > 20000
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["travel_cost", "max_distance"],
+      message: "Active mobility distance must be less than or equal to 20000 meters",
+    });
+  }
 });
 
 export const ptCatchmentAreaSchema = catchmentAreaBaseSchema.extend({

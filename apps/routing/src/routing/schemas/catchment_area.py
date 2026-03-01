@@ -251,7 +251,7 @@ class CatchmentAreaTravelDistanceCostCar(BaseModel):
         title="Max Distance",
         description="The maximum distance in meters.",
         ge=50,
-        le=20000,
+        le=100000,
     )
     steps: int = Field(
         ...,
@@ -263,7 +263,7 @@ class CatchmentAreaTravelDistanceCostCar(BaseModel):
     @field_validator("steps", mode="before")
     @classmethod
     def valid_num_steps(cls, v: int) -> int:
-        if v > 20000:
+        if v > 100000:
             raise ValueError(
                 "The number of steps must not exceed the maximum distance."
             )
