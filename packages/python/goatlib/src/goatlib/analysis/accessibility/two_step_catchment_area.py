@@ -486,12 +486,12 @@ class Heatmap2SFCATool(HeatmapToolBase):
                     ) 
             """
         elif which == ImpedanceFunction.linear:
-            return f"SUM( (1 - (m.cost / {max_cost_col})) )"
+            return f"(1 - (m.cost / {max_cost_col}))"
         elif which == ImpedanceFunction.exponential:
             return f"""
                     EXP(
                         ((({sens_col} / {max_sens}) * -1) * (m.cost / {max_cost_col}))
-                    ) *
+                    )
             """
         elif which == ImpedanceFunction.power:
             return f"""
@@ -564,7 +564,7 @@ class Heatmap2SFCATool(HeatmapToolBase):
             FROM {filtered_matrix} m
             JOIN {capacity_ratios_table} o ON m.dest_id = o.dest_id
             WHERE ({max_cost_filters})
-              AND o.{safe_names[0]}_ratio IS NOT NULL
+              AND ({' OR '.join([f'o.{sn}_ratio IS NOT NULL' for sn in safe_names])})
             GROUP BY m.orig_id
             HAVING total_accessibility IS NOT NULL
         """

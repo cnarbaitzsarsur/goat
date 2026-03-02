@@ -41,6 +41,7 @@ import ToolboxActionButtons from "@/components/map/panels/common/ToolboxActionBu
 import ToolsHeader from "@/components/map/panels/common/ToolsHeader";
 import LearnMore from "@/components/map/panels/toolbox/common/LearnMore";
 import { GenericInput } from "@/components/map/panels/toolbox/generic/inputs";
+import { processObjectProperties } from "@/components/map/panels/toolbox/generic/inputs/RepeatableObjectInput";
 import OevStationConfigInput from "@/components/map/panels/toolbox/generic/inputs/OevStationConfigInput";
 
 // Map section icons from backend to ICON_NAME
@@ -306,6 +307,37 @@ export default function GenericTool({ processId, onBack, onClose }: GenericToolP
           const value = effectiveValues[input.name];
           if (isEmpty(value)) {
             return false;
+          }
+        }
+
+        // For repeatable-object inputs, validate that at least one item
+        // has all its visible required fields filled
+        if (input.inputType === "repeatable-object" && Array.isArray(effectiveValues[input.name])) {
+          const items = effectiveValues[input.name] as Record<string, unknown>[];
+          // Resolve item schema (handle $ref and anyOf nullable patterns)
+          let itemSchema = input.schema.items;
+          if (!itemSchema && input.schema.anyOf) {
+            const arrayVariant = input.schema.anyOf.find(
+              (v: { type?: string; items?: unknown }) => v.type === "array" && v.items
+            );
+            if (arrayVariant) itemSchema = arrayVariant.items;
+          }
+          if (itemSchema?.$ref && process.$defs) {
+            const refName = itemSchema.$ref.replace("#/$defs/", "");
+            itemSchema = process.$defs[refName] || itemSchema;
+          }
+          if (itemSchema) {
+            const itemInputs = processObjectProperties(itemSchema, process.$defs);
+            const hasCompleteItem = items.some((item) => {
+              const mergedItemValues = { ...effectiveValues, ...item };
+              const visibleItemInputs = getVisibleInputs(itemInputs, mergedItemValues);
+              return visibleItemInputs
+                .filter((ii) => ii.required)
+                .every((ii) => !isEmpty(item[ii.name]));
+            });
+            if (!hasCompleteItem) {
+              return false;
+            }
           }
         }
       }
