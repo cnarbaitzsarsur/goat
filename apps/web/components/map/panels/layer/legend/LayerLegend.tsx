@@ -10,9 +10,11 @@ import { LayerIcon } from "./LayerIcon";
 interface LayerLegendPanelProps {
   properties: Record<string, unknown>;
   geometryType: string; // "point", "line", "polygon"
+  /** Optional sx overrides for legend item label text */
+  itemTypographySx?: Record<string, unknown>;
 }
 
-export const LayerLegendPanel = ({ properties, geometryType }: LayerLegendPanelProps) => {
+export const LayerLegendPanel = ({ properties, geometryType, itemTypographySx }: LayerLegendPanelProps) => {
   const { t } = useTranslation("common");
 
   // Check if this is a raster layer with styling
@@ -21,7 +23,7 @@ export const LayerLegendPanel = ({ properties, geometryType }: LayerLegendPanelP
 
   // 1. Raster Layer Legends
   if (rasterStyle) {
-    return <RasterLayerLegend style={rasterStyle} />;
+    return <RasterLayerLegend style={rasterStyle} itemTypographySx={itemTypographySx} />;
   }
 
   // 2. Feature Layer Legends
@@ -34,7 +36,7 @@ export const LayerLegendPanel = ({ properties, geometryType }: LayerLegendPanelP
   const renderRow = (label: string, iconNode: React.ReactNode) => (
     <Stack direction="row" alignItems="center" spacing={1} sx={{ py: 0.5 }}>
       <Box sx={{ width: 20, display: "flex", justifyContent: "center" }}>{iconNode}</Box>
-      <Typography variant="caption" sx={{ lineHeight: 1.2 }}>
+      <Typography variant="caption" sx={{ lineHeight: 1.2, ...itemTypographySx }}>
         {label}
       </Typography>
     </Stack>
@@ -236,9 +238,10 @@ export const LayerLegendPanel = ({ properties, geometryType }: LayerLegendPanelP
 // Raster Layer Legend Component
 interface RasterLayerLegendProps {
   style: RasterLayerProperties["style"];
+  itemTypographySx?: Record<string, unknown>;
 }
 
-const RasterLayerLegend = ({ style }: RasterLayerLegendProps) => {
+const RasterLayerLegend = ({ style, itemTypographySx }: RasterLayerLegendProps) => {
   if (!style) return null;
 
   // Helper to render a single legend row
@@ -254,7 +257,7 @@ const RasterLayerLegend = ({ style }: RasterLayerLegendProps) => {
           borderRadius: 0.5,
         }}
       />
-      <Typography variant="caption" sx={{ lineHeight: 1.2 }}>
+      <Typography variant="caption" sx={{ lineHeight: 1.2, ...itemTypographySx }}>
         {label}
       </Typography>
     </Stack>
@@ -295,10 +298,10 @@ const RasterLayerLegend = ({ style }: RasterLayerLegendProps) => {
           }}
         />
         <Stack direction="row" justifyContent="space-between">
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: "text.secondary", ...itemTypographySx }}>
             {minLabel}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: "text.secondary", ...itemTypographySx }}>
             {maxLabel}
           </Typography>
         </Stack>

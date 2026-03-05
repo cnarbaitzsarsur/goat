@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ICON_NAME } from "@p4b/ui/components/Icon";
 
+import { DEFAULT_FONT_FAMILY } from "@/lib/constants/typography";
 import FontSize from "@/lib/extensions/font-size";
 import LineHeight from "@/lib/extensions/line-height";
 import type { TextElementSchema } from "@/lib/validations/widget";
@@ -49,6 +50,7 @@ export const TipTapEditorContent = styled(EditorContent)(() => ({
   wordBreak: "break-word",
   overflowWrap: "break-word",
   "& .ProseMirror": {
+    fontFamily: DEFAULT_FONT_FAMILY,
     wordBreak: "break-word",
     overflowWrap: "break-word",
     padding: 0,

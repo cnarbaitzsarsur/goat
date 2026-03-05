@@ -357,7 +357,7 @@ export function resolvePageLabel(
 // =============================================================================
 
 /** Maximum number of atlas pages allowed */
-export const ATLAS_MAX_PAGES = 150;
+export const ATLAS_MAX_PAGES = 40;
 
 // =============================================================================
 // Dynamic Text Resolution

@@ -2,8 +2,10 @@
 
 import { Box, Stack, Typography } from "@mui/material";
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { TypographyStyle } from "@/lib/constants/typography";
+import { DEFAULT_FONT_FAMILY } from "@/lib/constants/typography";
 import { rgbToHex } from "@/lib/utils/helpers";
 import type { RGBColor } from "@/types/map/color";
 import type { ProjectLayer } from "@/lib/validations/project";
@@ -16,9 +18,9 @@ import { LayerLegendPanel } from "@/components/map/panels/layer/legend/LayerLege
  * Convert TypographyStyle to MUI sx props
  */
 function typographyToSx(style?: TypographyStyle): Record<string, unknown> {
-  if (!style) return {};
+  if (!style) return { fontFamily: DEFAULT_FONT_FAMILY };
   const sx: Record<string, unknown> = {};
-  if (style.fontFamily) sx.fontFamily = style.fontFamily;
+  sx.fontFamily = style.fontFamily || DEFAULT_FONT_FAMILY;
   if (style.fontSize) sx.fontSize = style.fontSize;
   if (style.fontColor) sx.color = style.fontColor;
   if (style.fontWeight) sx.fontWeight = style.fontWeight;
@@ -76,9 +78,10 @@ const LegendElementRenderer: React.FC<LegendElementRendererProps> = ({
   viewOnly: _viewOnly = true,
   zoom = 1,
 }) => {
+  const { t } = useTranslation("common");
   // Extract legend config
   const config = element.config as LegendElementConfig;
-  const titleText = config?.title?.text ?? "";
+  const titleText = config?.title?.text ?? t("legend");
   const layoutConfig = config?.layout ?? { columns: 1, showLayerNames: true };
   const typography = config?.typography;
 
@@ -257,6 +260,7 @@ const LayerLegendItem: React.FC<LayerLegendItemProps> = ({ layer, showLayerName 
         <LayerLegendPanel
           properties={props}
           geometryType={geomType}
+          itemTypographySx={typographyToSx(typography?.legendItem)}
         />
       )}
 
@@ -265,6 +269,7 @@ const LayerLegendItem: React.FC<LayerLegendItemProps> = ({ layer, showLayerName 
         <LayerLegendPanel
           properties={props}
           geometryType="raster"
+          itemTypographySx={typographyToSx(typography?.legendItem)}
         />
       )}
 

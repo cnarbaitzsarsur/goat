@@ -136,6 +136,11 @@ class PrintReportParams(ToolInputBase):
         description="Access token for API authentication (passed by GeoAPI)",
         json_schema_extra={"x-ui": {"hidden": True}},
     )
+    refresh_token: str | None = Field(
+        default=None,
+        description="Refresh token for renewing expired access tokens during long jobs",
+        json_schema_extra={"x-ui": {"hidden": True}},
+    )
 
 
 class PrintReportOutput(BaseModel):
@@ -160,6 +165,11 @@ class PrintReportRunner(SimpleToolRunner):
         super().__init__()
         self._browser = None
         self._playwright = None
+        self._current_access_token: str | None = None
+        self._refresh_token: str | None = None
+        self._keycloak_token_url: str | None = None
+        self._keycloak_client_id: str | None = None
+        self._keycloak_client_secret: str | None = None
 
     async def _get_browser(self: Self):  # noqa: ANN202
         """Get or create Playwright browser instance."""
@@ -190,6 +200,52 @@ class PrintReportRunner(SimpleToolRunner):
         if self._playwright:
             await self._playwright.stop()
             self._playwright = None
+
+    def _can_refresh_token(self: Self) -> bool:
+        """Check if we have the credentials needed to refresh the access token."""
+        return bool(
+            self._refresh_token
+            and self._keycloak_token_url
+            and self._keycloak_client_id
+            and self._keycloak_client_secret
+        )
+
+    async def _refresh_access_token(self: Self) -> str | None:
+        """Refresh the access token using the Keycloak refresh token.
+
+        Returns the new access token, or None if refresh failed.
+        """
+        if not self._can_refresh_token():
+            return self._current_access_token
+
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    self._keycloak_token_url,
+                    data={
+                        "grant_type": "refresh_token",
+                        "client_id": self._keycloak_client_id,
+                        "client_secret": self._keycloak_client_secret,
+                        "refresh_token": self._refresh_token,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                response.raise_for_status()
+                tokens = response.json()
+
+                self._current_access_token = tokens["access_token"]
+                # Update refresh token if a new one was issued
+                if tokens.get("refresh_token"):
+                    self._refresh_token = tokens["refresh_token"]
+
+                logger.info("Successfully refreshed access token")
+                return self._current_access_token
+
+        except Exception as e:
+            logger.warning(f"Failed to refresh access token: {e}")
+            return self._current_access_token
 
     def _get_report_url(
         self: Self, params: PrintReportParams, page_index: int | None = None
@@ -378,6 +434,30 @@ class PrintReportRunner(SimpleToolRunner):
         from goatlib.services.s3 import S3Service
 
         try:
+            # Initialize token refresh state
+            # Access/refresh tokens come from job inputs (same as existing access_token pattern)
+            # Keycloak credentials come from env vars (NOT job inputs) to avoid
+            # exposing secrets in Windmill's job argument storage
+            self._current_access_token = params.access_token
+            self._refresh_token = params.refresh_token
+            keycloak_url = os.environ.get("KEYCLOAK_SERVER_URL", "")
+            keycloak_realm = os.environ.get("REALM_NAME", "")
+            if keycloak_url and keycloak_realm:
+                self._keycloak_token_url = (
+                    f"{keycloak_url}/realms/{keycloak_realm}"
+                    f"/protocol/openid-connect/token"
+                )
+            self._keycloak_client_id = os.environ.get(
+                "KEYCLOAK_CLIENT_ID",
+                os.environ.get("NEXT_PUBLIC_KEYCLOAK_CLIENT_ID"),
+            )
+            self._keycloak_client_secret = os.environ.get("KEYCLOAK_CLIENT_SECRET")
+
+            # Refresh the access token immediately to start with a fresh one
+            # (the original token may already be close to expiry by the time the worker starts)
+            if self._can_refresh_token():
+                await self._refresh_access_token()
+
             # Determine pages to render
             if params.atlas_page_indices is not None:
                 # Specific pages requested
@@ -398,15 +478,20 @@ class PrintReportRunner(SimpleToolRunner):
 
             for i in range(0, len(page_indices), ATLAS_BATCH_SIZE):
                 batch = page_indices[i : i + ATLAS_BATCH_SIZE]
-                tasks = []
 
+                # Refresh access token before each batch to prevent 401 errors
+                # during long-running atlas jobs
+                if i > 0 and self._can_refresh_token():
+                    await self._refresh_access_token()
+
+                tasks = []
                 for page_idx in batch:
                     url = self._get_report_url(params, page_idx)
                     tasks.append(
                         self._render_page(
                             url,
                             params.format,
-                            params.access_token,
+                            self._current_access_token,
                             params.dpi,
                             params.paper_width_mm,
                             params.paper_height_mm,

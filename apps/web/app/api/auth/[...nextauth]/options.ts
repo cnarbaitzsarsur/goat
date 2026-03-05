@@ -69,6 +69,7 @@ export const options: NextAuthOptions = {
     async session({ session, token }) {
       if (token) {
         session.access_token = token.access_token;
+        session.refresh_token = token.refresh_token;
         session.error = token.error;
       }
       return session;

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSession } from "next-auth/react";
 import { toast } from "react-toastify";
 import { useSWRConfig } from "swr";
 
@@ -35,6 +36,7 @@ export interface UseExportReportResult {
  */
 export function useExportReport(): UseExportReportResult {
   const { t } = useTranslation("common");
+  const { data: session } = useSession();
   const [isBusy, setIsBusy] = useState(false);
   const { mutate } = useSWRConfig();
 
@@ -89,6 +91,11 @@ export function useExportReport(): UseExportReportResult {
           inputs.paper_height_mm = paperHeightMm;
         }
 
+        // Pass refresh token for long-running atlas jobs where access token may expire
+        if (session?.refresh_token) {
+          inputs.refresh_token = session.refresh_token;
+        }
+
         const job = await executeProcessAsync("print_report", inputs);
 
         if (job.jobID) {
@@ -103,7 +110,7 @@ export function useExportReport(): UseExportReportResult {
         setIsBusy(false);
       }
     },
-    [t, mutate]
+    [t, mutate, session?.refresh_token]
   );
 
   return {

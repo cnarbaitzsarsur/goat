@@ -478,9 +478,14 @@ async def execute_process(
     # Add user_id to inputs for job tracking
     job_inputs = {**execute_request.inputs, "user_id": str(user_id)}
 
-    # Pass access_token to print_report for Playwright authentication
-    if process_id == "print_report" and access_token:
-        job_inputs["access_token"] = access_token
+    # Pass access_token and refresh_token to print_report for Playwright authentication
+    # The refresh_token allows the worker to refresh expired access tokens during long atlas jobs
+    # NOTE: Keycloak client credentials are read from env vars in the print worker directly,
+    # NOT passed through job inputs, to avoid exposing secrets in Windmill's job storage
+    if process_id == "print_report":
+        if access_token:
+            job_inputs["access_token"] = access_token
+        # refresh_token is passed from the frontend in the inputs — same exposure as access_token
 
     # Auto-populate od_matrix_path for heatmap tools based on routing_mode
     # This allows the field to be hidden in the UI while still being required by the analysis
