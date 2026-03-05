@@ -465,10 +465,7 @@ class ToolRegistry:
                 else {}
             )
 
-            # Check if field is hidden via x-ui metadata
             x_ui = field_schema.get("x-ui", {})
-            if x_ui.get("hidden", False):
-                continue
 
             # Use field schema from full_schema directly (preserves $ref, nested types, x-ui)
             # Only fallback to manual conversion if not in full_schema
