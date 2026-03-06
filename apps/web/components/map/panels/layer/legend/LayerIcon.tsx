@@ -72,8 +72,8 @@ export const LayerIcon = ({
           height="12"
           rx="2"
           fill={filled ? color : "none"}
-          stroke={strokeColor || color}
-          strokeWidth={2}
+          stroke={strokeColor || (!filled ? color : "none")}
+          strokeWidth={strokeColor || !filled ? 2 : 0}
           fillOpacity={filled ? 1 : 0}
         />
       )}

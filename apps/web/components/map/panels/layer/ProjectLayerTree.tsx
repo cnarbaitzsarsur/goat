@@ -829,7 +829,7 @@ export const ProjectLayerTree = ({
           <LayerIcon
             type={geomType} // Use geometry type for vector preview
             color={baseColor}
-            strokeColor={strokeColor}
+            strokeColor={props.stroked !== false ? strokeColor : undefined}
             filled={props.filled !== false}
             iconUrl={
               !props.marker_field && props.custom_marker && props.marker?.url ? props.marker.url : undefined

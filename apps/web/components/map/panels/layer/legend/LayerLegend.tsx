@@ -214,6 +214,12 @@ export const LayerLegendPanel = ({ properties, geometryType, itemTypographySx }:
 
   // E. Attribute-based Stroke only (no fill color field)
   if (strokeMap.length > 1) {
+    const filled = properties.filled !== false;
+    const fillColor = properties.color
+      ? Array.isArray(properties.color)
+        ? `rgb(${(properties.color as number[]).join(",")})`
+        : (properties.color as string)
+      : undefined;
     return (
       <Box sx={{ pb: 1, pr: 2, pt: 0.5 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
@@ -223,7 +229,7 @@ export const LayerLegendPanel = ({ properties, geometryType, itemTypographySx }:
           <React.Fragment key={`${item.color}-${item.value?.join(",") || index}`}>
             {renderRow(
               item.label || item.value?.join(", ") || "Other",
-              <LayerIcon type={geometryType} color={undefined} strokeColor={item.color} filled={false} />
+              <LayerIcon type={geometryType} color={filled ? fillColor : undefined} strokeColor={item.color} filled={filled} />
             )}
           </React.Fragment>
         ))}
